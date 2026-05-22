@@ -1,6 +1,14 @@
 # Aeroacoustic Flying Saucer Oscillating Resonator CFD Simulation (LBM)
 
-![Vortex Dynamics Simulation](`flying_saucer.gif`)
+## Demo
+
+
+
+
+
+
+  <img src="./flying_saucer.gif" alt="flying saucer experiment" width="700">
+</p>
 
 
 This repository contains a Computational Fluid Dynamics (CFD) simulation application built with Python, NumPy, and Gradio. The application simulates the unsteady fluid dynamics and vortex generation produced by an asymmetric oscillating body (biomimetic resonator / "flying saucer" model) operating in a viscous medium, utilizing the **Lattice Boltzmann Method (D2Q9 model)**.
