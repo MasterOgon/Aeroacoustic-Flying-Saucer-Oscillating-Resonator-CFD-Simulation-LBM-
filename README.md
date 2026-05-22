@@ -56,3 +56,7 @@ The simulated Python application allows you to tweak the physical parameters of 
   * *Velocity Profile Asymmetry* changes the stroke acceleration bias to optimize thrust generation.
 * **Visualization Modes:** Toggle between Velocity Magnitude mapping and Vorticity fields using a professional high-contrast multi-color CFD palette.
 
+* ## Try it Online
+
+You can try for free online open source version: Flying Saucer Simulator](https://www.masterogon.art/index.php/flying-saucer-simulator/)**
+
