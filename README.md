@@ -63,7 +63,7 @@ You can try for free online:
 
 **[🛸🧑‍✈️Flyght Simulator](https://www.masterogon.art/index.php/flying-saucer-simulator-2/)**
 
-**[🛸🧑‍✈️Flyght Simulator](https://www.masterogon.art/index.php/ufo-cigar-flight-simulator/)**
+**[🚬🧑‍✈️Flyght Simulator](https://www.masterogon.art/index.php/ufo-cigar-flight-simulator/)**
 
 
 
