@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Flying Saucer Simulator</title>
+    <style>
+        html, body {
+            background-color: #050505;
+            color: #d0d0d0;
+            font-family: monospace;
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        h2 { font-size: 14px; margin: 5px 0; color: #00ffd0; text-align: center; }
+        
+        .canvas-container {
+            position: relative;
+            flex: 1;
+            width: 100%;
+            min-height: 0;
+            background: #000;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            touch-action: none;
+        }
+        
+        .controls {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 10px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 40vh;
+            overflow-y: auto;
+            background: #111;
+            border-top: 1px solid #262626;
+        }
+        
+        details {
+            background: #151515;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 8px;
+        }
+        summary {
+            font-weight: bold;
+            cursor: pointer;
+            outline: none;
+            color: #d0d0d0;
+            font-size: 13px;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
+        label { font-size: 11px; display: flex; justify-content: space-between; align-items: center;}
+        span { color: #00ffd0; font-weight: bold; font-size: 12px;}
+        
+        input[type=range] { width: 100%; cursor: pointer; height: 20px; margin: 0; }
+        
+        .telemetry {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: transparent;
+            padding: 8px;
+            border-radius: 5px;
+            font-size: 11px;
+            pointer-events: none;
+            color: #00ffd0;
+            line-height: 1.5;
+            text-shadow: 0 0 5px rgba(0, 255, 208, 0.4);
+        }
+
+        #crashScreen {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 0, 0, 0.3);
+            color: white;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            z-index: 10;
+        }
+        #crashScreen span { font-size: 14px; margin-top: 10px; color: #ccc;}
+        /* --- Адаптация для ПК (горизонтальная панель) --- */
+@media (min-width: 768px) {
+    .controls {
+        flex-direction: row;      /* Выстраиваем элементы горизонтально */
+        max-width: 100%;          /* Убираем мобильное ограничение ширины в 600px */
+        justify-content: center;  /* Центрируем блоки настроек */
+        align-items: flex-start;  /* Выравниваем блоки по верхнему краю панели */
+        gap: 20px;                /* Расстояние между блоками */
+        padding: 15px 30px;
+    }
+    
+    .controls details {
+        flex: 1;                  /* Блоки тянутся равномерно */
+        max-width: 400px;         /* Ограничиваем максимальную ширину одного блока, чтобы ползунки не были слишком длинными */
+    }
+}
+    </style>
+</head>
+<body>
+
+    <div class="canvas-container">
+        <canvas id="simCanvas"></canvas>
+        <div id="telemetry" class="telemetry">TELEMETRY...</div>
+        <div id="crashScreen" onclick="location.reload()">CRITICAL IMPACT<br><span>TAP TO RESTART</span></div>
+    </div>
+
+    <div class="controls">
+        <details open>
+            <summary>Flight Control </summary>
+            <div class="control-group">
+                <label>Angle of Attack: <span id="valAttack">0°</span></label>
+                <input type="range" id="attackAngle" min="-90" max="90" value="0" step="2">
+                
+                <label>Thrust Vector: <span id="valSlide">0°</span></label>
+                <input type="range" id="slideAngle" min="-180" max="180" value="0" step="5">
+                
+                <label>Amplitude: <span id="valAmp">1.0</span></label>
+                <input type="range" id="amplitude" min="0.1" max="1.0" value="0.80" step="0.05">
+                
+                <label>Frequency (Hz): <span id="valFreq">3.0</span></label>
+                <input type="range" id="baseFreq" min="0.5" max="8.0" value="2.0" step="0.1">
+            </div>
+        </details>
+        <details>
+            <summary>Advanced Physics</summary>
+            <div class="control-group">
+                <label>Feedback Dampening: <span id="valFeedback">1.00</span></label>
+                <input type="range" id="feedbackCoef" min="0.0" max="1.0" value="0.10" step="0.05">
+
+                <label>Asymmetry: <span id="valAsym">0.50</span></label>
+                <input type="range" id="asymmetry" min="0.0" max="1.0" value="0.5" step="0.05">
+                
+                <label>Mass: <span id="valMass">0.65</span></label>
+                <input type="range" id="mass" min="0.1" max="2.0" value="0.65" step="0.05">
+                
+                <label>Buoyancy: <span id="valBuoyancy">0.95</span></label>
+                <input type="range" id="buoyancy" min="0.0" max="1.2" value="0.95" step="0.05">
+            </div>
+        </details>
+    </div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const cfdCanvas = document.createElement('canvas');
+    const cfdCtx = cfdCanvas.getContext('2d');
+
+    const N = 120; 
+    const gridScale = 4; 
+    let p1 = new Float32Array(N * N);
+    let p2 = new Float32Array(N * N);
+    
+    // РАЗМЕР ПЛАНЕТЫ (увеличен в 3 раза)
+    const PLANET_R = 30000;
+    
+    // ПОЛОЖЕНИЕ СОЛНЦА В КОСМОСЕ (отдалено пропорционально)
+    const SUN_X = 0;
+    const SUN_Y = -114000;
+
+    let worldX = 0, worldY = 0; 
+    let vx = 0, vy = 0;
+    
+    let camX = 0, camY = 0;
+    let smoothCamX = 0, smoothCamY = 0;
+    let zoom = 1.0;
+
+    let currentPhase = 0;
+    let peakDrag = 0;
+    let lastDirection = 0;
+    let smoothedThrust = 0; 
+    let isCrashed = false;
+    let currentVibration = 0;
+
+    // Рельеф (оставлен без изменений, сглаживается за счет большей планеты)
+    const numTerrainPoints = 1440; 
+    const terrain = [];
+    for(let i=0; i<numTerrainPoints; i++) {
+        let angle = (i / numTerrainPoints) * 2 * Math.PI;
+        let h = Math.sin(angle * 4) * 200; 
+        h += Math.abs(Math.sin(angle * 13)) * 150; 
+        h += Math.cos(angle * 29) * 80; 
+        h -= Math.pow(Math.abs(Math.cos(angle * 5 + 2)), 6) * 100; 
+        h += Math.pow(Math.abs(Math.sin(angle * 53)), 2) * 40; 
+        h += Math.abs(Math.sin(angle * 107)) * 20; 
+        terrain.push(h);
+    }
+
+    function getTerrainHeightExact(angle) {
+        if(angle < 0) angle += 2*Math.PI;
+        angle = angle % (2*Math.PI);
+        let idx = (angle / (2*Math.PI)) * numTerrainPoints;
+        let i1 = Math.floor(idx) % numTerrainPoints;
+        let i2 = (i1 + 1) % numTerrainPoints;
+        let frac = idx - Math.floor(idx);
+        return terrain[i1] * (1-frac) + terrain[i2] * frac;
+    }
+    
+    let startAngle = -Math.PI / 2; 
+    let startRadius = PLANET_R + getTerrainHeightExact(startAngle) + 12.0; 
+    worldX = Math.cos(startAngle) * startRadius;
+    worldY = Math.sin(startAngle) * startRadius;
+    vx = 0; vy = 0;
+    smoothCamX = worldX;
+    smoothCamY = worldY;
+
+    // Обилие звезд в глубоком космосе
+    const stars = [];
+    for(let i=0; i<15000; i++) {
+        stars.push({
+            x: (Math.random() - 0.5) * 32000,
+            y: (Math.random() - 0.5) * 32000,
+            size: Math.random() * 2.0 + 0.5,
+            alpha: 0.4 + Math.random() * 0.6
+        });
+    }
+
+    // Текстура поверхности
+    const surfaceFeatures = [];
+    for(let i=0; i<1200; i++) {
+        let randAngle = Math.random() * 2 * Math.PI;
+        let baseH = getTerrainHeightExact(randAngle);
+        let depthOffset = Math.random() * 40; 
+        surfaceFeatures.push({
+            angle: randAngle,
+            rOffset: baseH - depthOffset,
+            size: Math.random() * 4 + 2,
+            color: Math.random() > 0.6 ? '#223311' : (Math.random() > 0.4 ? '#3d4d22' : '#1a260c')
+        });
+    }
+
+    const colorLUT = [];
+    const colorStops = [
+        {t: 0.00, r: 0,   g: 77,  b: 153}, 
+        {t: 0.10, r: 0,   g: 183, b: 255}, 
+        {t: 0.22, r: 0,   g: 255, b: 208}, 
+        {t: 0.38, r: 0,   g: 255, b: 90}, 
+        {t: 0.55, r: 235, g: 235, b: 0},   
+        {t: 0.75, r: 255, g: 120, b: 0},   
+        {t: 1.00, r: 255, g: 15,  b: 0}    
+    ];
+
+    for (let i = 0; i < 1024; i++) {
+        let t = i / 1023;
+        let r, g, b;
+        for (let j = 0; j < colorStops.length - 1; j++) {
+            if (t >= colorStops[j].t && t <= colorStops[j+1].t) {
+                let range = colorStops[j+1].t - colorStops[j].t;
+                let frac = (t - colorStops[j].t) / range;
+                r = colorStops[j].r + (colorStops[j+1].r - colorStops[j].r) * frac;
+                g = colorStops[j].g + (colorStops[j+1].g - colorStops[j].g) * frac;
+                b = colorStops[j].b + (colorStops[j+1].b - colorStops[j].b) * frac;
+                break;
+            }
+        }
+        colorLUT.push([Math.floor(r), Math.floor(g), Math.floor(b)]);
+    }
+
+    const inputs = {
+        attack: document.getElementById('attackAngle'),
+        slide: document.getElementById('slideAngle'),
+        freq: document.getElementById('baseFreq'),
+        amp: document.getElementById('amplitude'),
+        asym: document.getElementById('asymmetry'),
+        mass: document.getElementById('mass'),
+        buoyancy: document.getElementById('buoyancy'),
+        feedback: document.getElementById('feedbackCoef')
+    };
+
+    function resizeCanvas() {
+        const rect = canvas.parentElement.getBoundingClientRect();
+        const baseDimension = 450; 
+        let w, h;
+        if (rect.width > rect.height) {
+            h = baseDimension;
+            w = Math.round(baseDimension * (rect.width / rect.height));
+        } else {
+            w = baseDimension;
+            h = Math.round(baseDimension * (rect.height / rect.width));
+        }
+        if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+            cfdCanvas.width = w;
+            cfdCanvas.height = h;
+        }
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    function updatePhysics() {
+        if(isCrashed) return;
+
+        const attack = parseFloat(inputs.attack.value);
+        const slide = parseFloat(inputs.slide.value);
+        const freq = parseFloat(inputs.freq.value);
+        const amp = parseFloat(inputs.amp.value);
+        const asym = parseFloat(inputs.asym.value);
+        const mass = parseFloat(inputs.mass.value);
+        const buoyancyVal = parseFloat(inputs.buoyancy.value);
+        const feedbackMultiplier = parseFloat(inputs.feedback.value);
+
+        document.getElementById('valAttack').innerText = attack + "°";
+        document.getElementById('valSlide').innerText = slide + "°";
+        document.getElementById('valAmp').innerText = amp.toFixed(2);
+        document.getElementById('valFreq').innerText = freq.toFixed(1);
+        document.getElementById('valAsym').innerText = asym.toFixed(2);
+        document.getElementById('valMass').innerText = mass.toFixed(2);
+        document.getElementById('valBuoyancy').innerText = buoyancyVal.toFixed(2);
+        document.getElementById('valFeedback').innerText = feedbackMultiplier.toFixed(2);
+
+        let dist = Math.sqrt(worldX*worldX + worldY*worldY);
+        let angleToCenter = Math.atan2(worldY, worldX);
+        let surfaceOffset = getTerrainHeightExact(angleToCenter);
+        let altitude = dist - PLANET_R - surfaceOffset;
+        
+        // Атмосфера увеличена пропорционально планете до 9000
+        let density = Math.max(0, Math.min(1, 1 - (altitude / 9000.0)));
+
+        let normalX = worldX / dist;
+        let normalY = worldY / dist;
+        
+        let rRatio = PLANET_R / dist;
+        let gForce = 0.08 * mass * (rRatio * rRatio); 
+        let buoyForce = gForce * buoyancyVal * density; 
+        let netGForce = gForce - buoyForce;
+
+        let gravX = -normalX * netGForce;
+        let gravY = -normalY * netGForce;
+
+        // Влияние сопротивления на частоту и асимметрию теперь регулируется ползунком
+        let feedbackStrength = peakDrag * 1.25 * feedbackMultiplier;
+        let dynFreq = Math.max(0.5, freq - feedbackStrength * freq);
+        let dynAsym = Math.min(1.8, asym + feedbackStrength * 0.6);
+
+        currentPhase += (2 * Math.PI * dynFreq) / 60.0;
+        let vBase = -amp * Math.sin(currentPhase) * (dynFreq / 15.0);
+        let vTarget = dynAsym > 0 ? vBase * (1.0 + dynAsym * Math.cos(currentPhase)) : vBase;
+
+        let localHorizon = angleToCenter + Math.PI/2;
+        let absolutePitch = localHorizon + (attack * Math.PI / 180);
+        
+        let thrustAngle = absolutePitch - Math.PI / 2 + (slide * Math.PI / 180);
+        let thrustDirX = Math.cos(thrustAngle);
+        let thrustDirY = Math.sin(thrustAngle);
+
+        let pitchX = Math.cos(absolutePitch);
+        let pitchY = Math.sin(absolutePitch);
+
+        // Синхронизируем физическую вибрацию
+        currentVibration = vTarget * 8.0; 
+        
+        // 2D Вектор вибрации с учетом угла скольжения (Slide/Thrust Vector)
+        let slideRad = slide * Math.PI / 180;
+        let vibLocalX = currentVibration * Math.sin(slideRad);
+        let vibLocalY = currentVibration * Math.cos(slideRad);
+        
+        let pressureInjection = vTarget * 3.0 * density;
+      
+        let shipGridX = worldX / gridScale;
+        let shipGridY = worldY / gridScale;
+        let size = 16 * 0.7; 
+        let rx = (size * 2.2) / gridScale; 
+        let ry = (size * 0.6) / gridScale; 
+        let box = Math.ceil(Math.max(rx, ry)) + 2;
+
+        for (let gy = -box; gy <= box; gy++) {
+            for (let gx = -box; gx <= box; gx++) {
+                let rotX = gx * Math.cos(-absolutePitch) - gy * Math.sin(-absolutePitch);
+                let rotY = gx * Math.sin(-absolutePitch) + gy * Math.cos(-absolutePitch);
+                
+                // Маска CFD сдвигается по вектору тяги
+                let localX = rotX - (vibLocalX / gridScale);
+                let localY = rotY - (vibLocalY / gridScale);
+                
+                if ((localX * localX) / (rx * rx) + (localY * localY) / (ry * ry) <= 1.0) {
+                    let mapX = Math.floor(shipGridX + gx);
+                    let mapY = Math.floor(shipGridY + gy);
+                    let wrapX = (mapX % N + N) % N;
+                    let wrapY = (mapY % N + N) % N;
+                    p1[wrapY * N + wrapX] += pressureInjection;
+                }
+            }
+        }
+
+        let dragEnergy = Math.abs(vTarget * 4.0 * density); 
+        let currentDir = Math.abs(vTarget) > 1e-3 ? Math.sign(vTarget) : 0;
+        let releaseForce = 0;
+
+        if (currentDir !== lastDirection && lastDirection !== 0) {
+            releaseForce = peakDrag * 4.5; 
+            peakDrag = 0;
+        }
+
+        if (dragEnergy > peakDrag) peakDrag = dragEnergy;
+        else releaseForce *= 0.85;
+        
+        lastDirection = currentDir;
+        smoothedThrust = smoothedThrust * 0.85 + releaseForce * 0.15;
+
+        let thrustX = smoothedThrust * thrustDirX;
+        let thrustY = smoothedThrust * thrustDirY;
+
+        let vAngle = Math.atan2(vy, vx);
+        let speed = Math.sqrt(vx*vx + vy*vy);
+        let angleOfAttack = vAngle - absolutePitch;
+        
+        let wingEfficiency = 0.001; 
+        let liftMag = wingEfficiency * density * speed * speed * Math.sin(2 * angleOfAttack);
+        
+        let liftX = liftMag * Math.sin(absolutePitch);
+        let liftY = liftMag * -Math.cos(absolutePitch);
+
+        let currentSlide = parseFloat(inputs.slide.value);
+        let currentThrustAngle = absolutePitch - Math.PI / 2 + (currentSlide * Math.PI / 180);
+
+        let perpAngle = currentThrustAngle + Math.PI / 2;
+        let perpX = Math.cos(perpAngle);
+        let perpY = Math.sin(perpAngle);
+
+        let v_perp = vx * perpX + vy * perpY;
+
+        let lateralDragCoef = 0.01; 
+        let aeroDragMag = lateralDragCoef * density * v_perp * Math.abs(v_perp);
+
+        let aeroDragX = -aeroDragMag * perpX;
+        let aeroDragY = -aeroDragMag * perpY;
+
+        let sunDx = worldX - SUN_X;
+        let sunDy = worldY - SUN_Y;
+        let sunDist = Math.sqrt(sunDx*sunDx + sunDy*sunDy);
+        let sunDirX = sunDx / sunDist;
+        let sunDirY = sunDy / sunDist;
+        
+        let sailNormX = -Math.sin(absolutePitch);
+        let sailNormY = Math.cos(absolutePitch);
+        let solarDot = sunDirX * sailNormX + sunDirY * sailNormY; 
+        
+        let solarPressureForce = 0.035 * solarDot * Math.abs(solarDot);
+        let sailPushX = sailNormX * solarPressureForce;
+        let sailPushY = sailNormY * solarPressureForce;
+
+        vx += (thrustX / mass) * 0.15 + (gravX / mass) + (liftX / mass) + (aeroDragX / mass) + (sailPushX / mass);
+        vy += (thrustY / mass) * 0.15 + (gravY / mass) + (liftY / mass) + (aeroDragY / mass) + (sailPushY / mass);
+
+        worldX += vx;
+        worldY += vy;
+
+        if (altitude <= 2.5) {
+            let vNorm = vx * normalX + vy * normalY; 
+            if (vNorm < 0) { 
+                let impactSpeed = Math.abs(vNorm);
+                if (impactSpeed > 2.5) {
+                    isCrashed = true;
+                    document.getElementById('crashScreen').style.display = 'flex';
+                } else {
+                    vx -= 1.6 * vNorm * normalX; 
+                    vy -= 1.6 * vNorm * normalY;
+                    vx *= 0.7; vy *= 0.7; 
+                    let pushOut = 2.5 - altitude;
+                    worldX += normalX * pushOut;
+                    worldY += normalY * pushOut;
+                }
+            }
+        }
+
+        let speedDisplay = (speed * 10).toFixed(1);
+        let altDisplay = Math.max(0, altitude).toFixed(0);
+        let airDisplay = (density * 100).toFixed(0);
+        
+        document.getElementById('telemetry').innerHTML = 
+            `<b>TELEMETRY</b><br>` +
+            `ALT : ${altDisplay} m<br>` +
+            `AIR : ${airDisplay} %<br>` +
+            `SPD : ${speedDisplay} m/s<br>` +
+            `SOLAR: ${(Math.abs(solarDot)*100).toFixed(0)}%`;
+    }
+
+    function computeWaves() {
+        let waveDecay = 0.60; 
+        for (let i = 0; i < N; i++) {
+            for (let j = 0; j < N; j++) {
+                let idx = i * N + j;
+                let up = ((i - 1 + N) % N) * N + j;
+                let dn = ((i + 1) % N) * N + j;
+                let lf = i * N + ((j - 1 + N) % N);
+                let rt = i * N + ((j + 1) % N);
+                
+                p2[idx] = (p1[up] + p1[dn] + p1[lf] + p1[rt]) / 2 - p2[idx];
+                p2[idx] *= waveDecay; 
+            }
+        }
+        let temp = p1; p1 = p2; p2 = temp;
+    }
+
+    function drawWorld() {
+        smoothCamX += (worldX - smoothCamX) * 0.95;
+        smoothCamY += (worldY - smoothCamY) * 0.95;
+        
+        let camAngleToCenter = Math.atan2(smoothCamY, smoothCamX);
+        let worldRotation = -camAngleToCenter - Math.PI/2;
+
+        let dist = Math.sqrt(smoothCamX*smoothCamX + smoothCamY*smoothCamY);
+        let camAlt = dist - PLANET_R;
+        let skyDensity = Math.max(0, Math.min(1, 1 - (camAlt / 6000.0))); // Пропорционально увеличено
+        
+        ctx.fillStyle = `rgb(${Math.floor(12 * skyDensity)}, ${Math.floor(45 * skyDensity)}, ${Math.floor(120 * skyDensity)})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2); 
+        ctx.rotate(worldRotation); 
+        ctx.scale(zoom, zoom);     
+        ctx.translate(-smoothCamX, -smoothCamY); 
+
+        ctx.fillStyle = 'white';
+        stars.forEach(s => {
+            let sx = smoothCamX + ((s.x - smoothCamX * 0.2) % 32000 + 32000) % 32000 - 16000;
+            let sy = smoothCamY + ((s.y - smoothCamY * 0.2) % 32000 + 32000) % 32000 - 16000;
+            
+            if(Math.abs(sx - smoothCamX) < canvas.width * 2 && Math.abs(sy - smoothCamY) < canvas.height * 2) {
+                ctx.globalAlpha = s.alpha; 
+                ctx.beginPath(); ctx.arc(sx, sy, s.size, 0, Math.PI*2); ctx.fill();
+            }
+        });
+        ctx.globalAlpha = 1.0;
+
+        ctx.save();
+        ctx.fillStyle = '#fffae0';
+        ctx.shadowBlur = 60;
+        ctx.shadowColor = '#ffaa00';
+        ctx.beginPath();
+        ctx.arc(SUN_X, SUN_Y, 700, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        let grad = ctx.createRadialGradient(0,0, PLANET_R, 0,0, PLANET_R + 9000);
+        grad.addColorStop(0, 'rgba(0, 140, 255, 0.45)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(0,0, PLANET_R+9000, 0, Math.PI*2); ctx.fill();
+
+        ctx.beginPath();
+        for(let i=0; i<=numTerrainPoints; i++) {
+            let a = (i%numTerrainPoints) * 2*Math.PI / numTerrainPoints;
+            let r = PLANET_R + terrain[i%numTerrainPoints];
+            let px = Math.cos(a) * r;
+            let py = Math.sin(a) * r;
+            if(i===0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.lineTo(0,0);
+        ctx.fillStyle = '#1d2b11'; 
+        ctx.fill();
+
+        surfaceFeatures.forEach(f => {
+            let r = PLANET_R + f.rOffset;
+            let fx = Math.cos(f.angle) * r;
+            let fy = Math.sin(f.angle) * r;
+            ctx.fillStyle = f.color;
+            ctx.beginPath();
+            ctx.arc(fx, fy, f.size, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        ctx.beginPath();
+        let inSegment = false;
+        const snowThreshold = 120; 
+        for(let i=0; i<=numTerrainPoints; i++) {
+            let idx = i % numTerrainPoints;
+            if(terrain[idx] > snowThreshold) { 
+                let a = idx * 2 * Math.PI / numTerrainPoints;
+                let r = PLANET_R + terrain[idx];
+                let px = Math.cos(a) * r;
+                let py = Math.sin(a) * r;
+                if(!inSegment) {
+                    ctx.moveTo(px, py);
+                    inSegment = true;
+                } else {
+                    ctx.lineTo(px, py);
+                }
+            } else {
+                inSegment = false;
+            }
+        }
+        ctx.lineWidth = 3 / zoom;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    function drawCFD() {
+        let imgData = cfdCtx.createImageData(canvas.width, canvas.height);
+        let data = imgData.data;
+        
+        let localDensity = Math.max(0, Math.min(1, 1 - ((Math.sqrt(worldX*worldX + worldY*worldY) - PLANET_R) / 1600.0)));
+        if (localDensity <= 0) return;
+
+        let camAngleToCenter = Math.atan2(smoothCamY, smoothCamX);
+        let worldRotation = -camAngleToCenter - Math.PI/2;
+        let cosR = Math.cos(-worldRotation);
+        let sinR = Math.sin(-worldRotation);
+
+        for (let y = 0; y < canvas.height; y+=2) {
+            for (let x = 0; x < canvas.width; x+=2) {
+                let dx = (x - canvas.width / 2) / zoom;
+                let dy = (y - canvas.height / 2) / zoom;
+                
+                let rx = dx * cosR - dy * sinR;
+                let ry = dx * sinR + dy * cosR;
+
+                let wX = smoothCamX + rx;
+                let wY = smoothCamY + ry;
+
+                let distToShip = Math.hypot(wX - worldX, wY - worldY);
+                if (distToShip > (N * gridScale) / 2) {
+                    continue; 
+                }
+
+                let gx = (Math.floor(wX / gridScale) % N + N) % N;
+                let gy = (Math.floor(wY / gridScale) % N + N) % N;
+                let val = p1[gy * N + gx];
+
+                let alpha = Math.min(255, Math.abs(val) * 300 * localDensity);
+                
+                if (alpha > 1) { 
+                    let t = 0.25; 
+                    
+                    if (val > 0) t = 0.25 + (val * 0.812);       
+                    else if (val < 0) t = 0.25 - (Math.abs(val) * 0.812); 
+                    
+                    t = Math.max(0, Math.min(1, t));
+                    
+                    let lutIdx = Math.floor(t * 1023);
+                    let color = colorLUT[lutIdx];
+
+                    for(let idy=0; idy<2; idy++) {
+                        for(let idx=0; idx<2; idx++) {
+                            let pxIdx = ((y+idy) * canvas.width + (x+idx)) * 4;
+                            if (pxIdx >= 0 && pxIdx < data.length) {
+                                data[pxIdx]   = color[0];
+                                data[pxIdx+1] = color[1];
+                                data[pxIdx+2] = color[2];
+                                data[pxIdx+3] = alpha;
+                            }
+                        }
+                    }
+                } 
+            } 
+        } 
+        
+        cfdCtx.putImageData(imgData, 0, 0);
+        ctx.drawImage(cfdCanvas, 0, 0);
+    } 
+  
+    function drawShip() {
+        if(isCrashed) return;
+        
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        
+        let camAngleToCenter = Math.atan2(smoothCamY, smoothCamX);
+        let worldRotation = -camAngleToCenter - Math.PI/2;
+        ctx.rotate(worldRotation);
+        ctx.scale(zoom, zoom);
+        ctx.translate(worldX - smoothCamX, worldY - smoothCamY);
+        
+        let angleToCenter = Math.atan2(worldY, worldX);
+        let absolutePitch = angleToCenter + Math.PI/2 + (parseFloat(inputs.attack.value) * Math.PI / 180);
+        ctx.rotate(absolutePitch);
+        
+        let size = 16 * 0.7; 
+
+        ctx.fillStyle = "#b59b52"; 
+        ctx.beginPath();
+        ctx.arc(0, -size * 0.4, size * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Синхронизация визуального эллипса с вектором тяги (slide)
+        let slideAngle = parseFloat(inputs.slide.value);
+        let slideRad = slideAngle * Math.PI / 180;
+        let vibLocalX = currentVibration * Math.sin(slideRad);
+        let vibLocalY = currentVibration * Math.cos(slideRad);
+
+        ctx.fillStyle = "#e0e0e0"; 
+        ctx.beginPath();
+        ctx.ellipse(vibLocalX, vibLocalY, size * 2.2, size * 0.6, 0, 0, 2 * Math.PI);
+        ctx.fill();
+
+        ctx.restore();
+    }
+  
+    function drawNavigationMap() {
+        const mapX = canvas.width - 70;
+        const mapY = 70;
+        const mapRadius = 55;
+        // Масштаб карты вычисляется динамически, чтобы планета всегда занимала ту же долю радара
+        const mapScale = 22.0 / PLANET_R; 
+
+        const minOrbitMapRadius = PLANET_R * mapScale; 
+        const earthMapRadius = minOrbitMapRadius * 0.45; 
+        const ATMOSPHERE_HEIGHT = 9000; 
+        const mapColor = '#00ffd0'; 
+
+        ctx.save();
+        
+        ctx.fillStyle = 'rgba(5, 12, 10, 0.85)';
+        ctx.strokeStyle = mapColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.clip();
+
+        ctx.fillStyle = 'rgba(0, 255, 208, 0.07)'; 
+        ctx.strokeStyle = 'rgba(0, 255, 208, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(mapX, mapY, earthMapRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(0, 255, 208, 0.75)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]); 
+        ctx.beginPath();
+        ctx.arc(mapX, mapY, minOrbitMapRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]); 
+
+        function calculateVisualDist(realDistance) {
+            let alt = realDistance - PLANET_R;
+            if (alt <= 0) {
+                return (realDistance / PLANET_R) * earthMapRadius;
+            } else if (alt <= ATMOSPHERE_HEIGHT) {
+                let t = alt / ATMOSPHERE_HEIGHT;
+                return earthMapRadius + t * (minOrbitMapRadius - earthMapRadius);
+            } else {
+                let spaceAlt = alt - ATMOSPHERE_HEIGHT;
+                return minOrbitMapRadius + spaceAlt * mapScale * 6; 
+            }
+        }
+
+        let sunMapX = mapX + SUN_X * mapScale;
+        let sunMapY = mapY + SUN_Y * mapScale;
+        let dxSun = sunMapX - mapX;
+        let dySun = sunMapY - mapY;
+        let distToSun = Math.hypot(dxSun, dySun);
+
+        if (distToSun < mapRadius) {
+            ctx.fillStyle = mapColor;
+            ctx.beginPath();
+            ctx.arc(sunMapX, sunMapY, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.font = 'bold 10px monospace';
+            ctx.fillText("S", sunMapX - 3, sunMapY + 12);
+        } else {
+            let angleToSun = Math.atan2(dySun, dxSun);
+            let arrowX = mapX + Math.cos(angleToSun) * (mapRadius - 7);
+            let arrowY = mapY + Math.sin(angleToSun) * (mapRadius - 7);
+            ctx.save();
+            ctx.translate(arrowX, arrowY);
+            ctx.rotate(angleToSun);
+            ctx.fillStyle = mapColor;
+            ctx.beginPath();
+            ctx.moveTo(5, 0);
+            ctx.lineTo(-4, -3.5);
+            ctx.lineTo(-4, 3.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+            
+            let textX = mapX + Math.cos(angleToSun) * (mapRadius - 18);
+            let textY = mapY + Math.sin(angleToSun) * (mapRadius - 18);
+            ctx.fillStyle = mapColor;
+            ctx.font = 'bold 9px monospace';
+            ctx.fillText("S", textX - 3, textY + 3);
+        }
+
+        ctx.beginPath();
+        let simX = worldX; let simY = worldY;
+        let simVx = vx; let simVy = vy;
+        let massVal = parseFloat(inputs.mass.value);
+        let buoyVal = parseFloat(inputs.buoyancy.value);
+        
+        let angleToCenter = Math.atan2(worldY, worldX);
+        let absolutePitch = angleToCenter + Math.PI/2 + (parseFloat(inputs.attack.value) * Math.PI / 180);
+
+        let currentSlide = parseFloat(inputs.slide.value);
+        let currentThrustAngle = absolutePitch - Math.PI / 2 + (currentSlide * Math.PI / 180);
+        let thrustDirX = Math.cos(currentThrustAngle);
+        let thrustDirY = Math.sin(currentThrustAngle);
+        let engineThrustX = smoothedThrust * thrustDirX;
+        let engineThrustY = smoothedThrust * thrustDirY;
+
+        let firstPoint = true;
+        const dt = 5; 
+        
+        for(let step = 0; step < 360; step++) {
+            let sDist = Math.sqrt(simX*simX + simY*simY);
+            let sAngle = Math.atan2(simY, simX);
+            let sTerrain = getTerrainHeightExact(sAngle);
+            let sAltitude = sDist - PLANET_R - sTerrain;
+            
+            let visualSimDist = calculateVisualDist(sDist);
+            let smX = mapX + (simX / sDist) * visualSimDist;
+            let smY = mapY + (simY / sDist) * visualSimDist;
+            
+            if (firstPoint) {
+                ctx.moveTo(smX, smY);
+                firstPoint = false;
+            } else {
+                ctx.lineTo(smX, smY);
+            }
+
+            if(sAltitude <= 2.5) break; 
+
+            let sNormalX = simX / sDist; let sNormalY = simY / sDist;
+            let rRatio = PLANET_R / sDist;
+            let sGForce = 0.08 * massVal * (rRatio * rRatio);
+            let sDensity = Math.max(0, Math.min(1, 1 - (sAltitude / ATMOSPHERE_HEIGHT)));
+            let sBuoy = sGForce * buoyVal * sDensity;
+            let sNetG = sGForce - sBuoy;
+            
+            let sGravX = -sNormalX * sNetG;
+            let sGravY = -sNormalY * sNetG;
+            
+            let sSunDx = simX - SUN_X; let sSunDy = simY - SUN_Y;
+            let sSunDist = Math.sqrt(sSunDx*sSunDx + sSunDy*sSunDy);
+            let sSunDirX = sSunDx / sSunDist;
+            let sSunDirY = sSunDy / sSunDist;
+            
+            let sSailNormX = -Math.sin(absolutePitch);
+            let sSailNormY = Math.cos(absolutePitch);
+            let sSolarDot = sSunDirX * sSailNormX + sSunDirY * sSailNormY;
+            let sSolarPressureForce = 0.035 * sSolarDot * Math.abs(sSolarDot);
+            let sSailPushX = sSailNormX * sSolarPressureForce;
+            let sSailPushY = sSailNormY * sSolarPressureForce;
+            
+            let sLiftX = 0, sLiftY = 0, sAeroDragX = 0, sAeroDragY = 0;
+            if (sDensity > 0) {
+                let sSpeed = Math.sqrt(simVx*simVx + simVy*simVy);
+                if (sSpeed > 0) {
+                    let sVAngle = Math.atan2(simVy, simVx);
+                    let sAoA = sVAngle - absolutePitch;
+                    let sLiftMag = 0.001 * sDensity * sSpeed * sSpeed * Math.sin(2 * sAoA);
+                    sLiftX = sLiftMag * Math.sin(absolutePitch);
+                    sLiftY = sLiftMag * -Math.cos(absolutePitch);
+
+                    let sPerpAngle = currentThrustAngle + Math.PI / 2;
+                    let sPerpX = Math.cos(sPerpAngle);
+                    let sPerpY = Math.sin(sPerpAngle);
+                    let sV_perp = simVx * sPerpX + simVy * sPerpY;
+                    let sAeroDragMag = 0.01 * sDensity * sV_perp * Math.abs(sV_perp);
+                    sAeroDragX = -sAeroDragMag * sPerpX;
+                    sAeroDragY = -sAeroDragMag * sPerpY;
+                }
+            }
+            
+            simVx += ((engineThrustX / massVal) * 0.15 + (sGravX / massVal) + (sLiftX / massVal) + (sAeroDragX / massVal) + (sSailPushX / massVal)) * dt;
+            simVy += ((engineThrustY / massVal) * 0.15 + (sGravY / massVal) + (sLiftY / massVal) + (sAeroDragY / massVal) + (sSailPushY / massVal)) * dt;
+            
+            simX += simVx * dt; 
+            simY += simVy * dt; 
+        }
+        ctx.strokeStyle = mapColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        let dist = Math.sqrt(worldX*worldX + worldY*worldY);
+        let visualDist = calculateVisualDist(dist);
+        let shipMapX = mapX + (worldX / dist) * visualDist;
+        let shipMapY = mapY + (worldY / dist) * visualDist;
+        
+        ctx.fillStyle = mapColor;
+        ctx.beginPath();
+        ctx.arc(shipMapX, shipMapY, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = mapColor;
+        ctx.font = 'bold 9px monospace';
+        ctx.fillText("E", mapX - 3, mapY + 3);
+
+        ctx.restore();
+    }
+
+    let initialDist = null;
+    let baseZoom = 1.0;
+
+    canvas.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 2) {
+            initialDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            baseZoom = zoom;
+        }
+    });
+
+    canvas.addEventListener('touchmove', function(e) {
+        if (e.touches.length === 2 && initialDist !== null) {
+            e.preventDefault();
+            let dist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            zoom = Math.max(0.05, Math.min(6.0, baseZoom * (dist / initialDist)));
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', function(e) {
+        if (e.touches.length < 2) initialDist = null;
+    });
+
+    canvas.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        if (e.deltaY < 0) zoom = Math.min(6.0, zoom * 1.1);
+        else zoom = Math.max(0.05, zoom / 1.1);
+    }, { passive: false });
+
+    function loop() {
+        resizeCanvas();
+        updatePhysics();
+        if(!isCrashed) computeWaves(); 
+        drawWorld();
+        if(!isCrashed) drawCFD();
+        drawShip();
+        drawNavigationMap(); 
+        
+        requestAnimationFrame(loop);
+    }
+
+    resizeCanvas();
+    loop();
+</script>
+</body>
+</html>
