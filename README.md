@@ -59,7 +59,7 @@ The simulated Python application allows you to tweak the physical parameters of 
 * ## Try it Online
 
 You can try for free online:
-**[🛸🌊CFD Simulation](https://www.masterogon.art/index.php/flying-saucer-simulator/)**
+**[🛸🌊CFD Simulation](https://www.masterogon.art/index.php/flying-saucer-simulation/)**
 
 **[🛸🧑‍✈️Flyght Simulator](https://www.masterogon.art/index.php/flying-saucer-simulator-2/)**
 
