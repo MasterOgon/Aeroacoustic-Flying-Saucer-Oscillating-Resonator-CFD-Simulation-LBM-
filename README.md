@@ -27,14 +27,20 @@ Contrary to classical intuition regarding symmetric mass expulsion, an asymmetri
 * **Vortex Ring Formation:** During the cycle of high-acceleration oscillation, the asymmetric geometry separates the fluid flow unevenly, generating coherent toroidal vortex structures (vortex rings).
 * **Pressure Drop Generation:** These vortices act as a collapse of low-pressure zones with the release of free thermal energy of the environment in the form of self-organization of Brownian motion. By controlling the velocity profile asymmetry (the wave acceleration profile), the resonator creates a sustained pressure differential ($\Delta P$) between its upper and lower surfaces, producing a clean net thrust vector without requiring traditional open-loop propellant ejection.
 * **Simulation:** The solution represents an empirical simplified model – by accumulating the resistance energy from the oscillations and releasing it as a force in the opposite direction in the next half-cycle. This allows for a fairly realistic visualization of the experimentally observed phenomenon.
-
 ### 3. Barotropic Vacuum Collapse & Dynamic LBM Density Sampling
-In the latest framework update, the thrust generation engine transitions from a purely empirical energy accumulator to a physically grounded energy model driven by real-time fluidic pressure gradients ($\Delta P_{\mathrm{cavity}}$) sampled directly from the LBM grid:
-* **Dynamic Pressure Differential:** Instead of assuming a static density, the solver samples the local fluid density directly at the boundary of the solid mask ($\bar{\rho}_{\mathrm{surface}}$). The effective rarefaction is calculated as $\Delta P_{\mathrm{cavity}} = \max\left(0.05, P_0 - \bar{\rho}_{\mathrm{surface}}\right)$, reflecting real-time fluidic rarefaction induced by the vehicle's motion.
+In the latest framework update, the thrust generation engine transitions from a purely empirical energy accumulator to a physically grounded energy model driven by real-time fluidic pressure gradients ($\Delta P_{cavity}$) sampled directly from the LBM grid:
 
-* **Energy Accumulation & Barotropic Impulse:** The potential energy stored within the self-induced low-pressure cavity is modeled as $E_{\mathrm{stored}} = \Delta P_{\mathrm{cavity}} \cdot A_{\mathrm{eff}} \cdot |v_{\mathrm{target}}|$. Upon stroke reversal, the implosive collapse of this cavity generates a concentrated barotropic thrust pulse ($F_{\mathrm{collapse}} = \eta_{\mathrm{col}} \cdot \Delta P_{\mathrm{cavity}} \cdot A_{\mathrm{eff}} \cdot \mathrm{sgn}(v_{\mathrm{target}}) \cdot k_{\mathrm{shock}}$), where $\eta_{\mathrm{col}} \approx 0.15$ accounts for hydrodynamic recovery efficiency and $k_{\mathrm{shock}} \approx 1.5$ models localized pressure peaks.
+* **Dynamic Pressure Differential:** Instead of assuming a static density, the solver samples the local fluid density directly at the boundary of the solid mask ($\bar{\rho}_{surface}$). The effective rarefaction is calculated as:
+  $$\Delta P_{cavity} = \max(0.05, P_0 - \bar{\rho}_{surface})$$
+  reflecting real-time fluidic rarefaction induced by the vehicle's motion.
 
- 
+* **Energy Accumulation & Barotropic Impulse:** The potential energy stored within the self-induced low-pressure cavity is modeled as:
+  $$E_{stored} = \Delta P_{cavity} \cdot A_{eff} \cdot |v_{target}|$$
+  Upon stroke reversal, the implosive collapse of this cavity generates a concentrated barotropic thrust pulse:
+  $$F_{collapse} = \eta_{col} \cdot \Delta P_{cavity} \cdot A_{eff} \cdot \mathrm{sgn}(v_{target}) \cdot k_{shock}$$
+  where $\eta_{col} \approx 0.15$ accounts for hydrodynamic recovery efficiency and $k_{shock} \approx 1.5$ models localized pressure peaks.
+
+
 ### 4. Macro-Analogue to Quantum Hydrodynamics
 In advanced theoretical frameworks, this mechanism is modeled as a macroscopic analogue to an elementary particle interacting with a non-empty vacuum substrate. By manipulating the local boundary layers and vortex filaments, the craft transitions from "expelling mass" to "modifying the medium geometry," representing a biomechanically inspired step toward advanced propulsion.
 
