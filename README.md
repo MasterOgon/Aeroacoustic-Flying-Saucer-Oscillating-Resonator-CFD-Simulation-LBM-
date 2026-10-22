@@ -2,65 +2,82 @@
 
 ## Demo
 
-
-
-
-
-
+<p align="center">
   <img src="./flying_saucer.gif" alt="flying saucer experiment" width="700">
 </p>
-
 
 This repository contains a Computational Fluid Dynamics (CFD) simulation application built with Python, NumPy, and Gradio. The application simulates the unsteady fluid dynamics and vortex generation produced by an asymmetric oscillating body (biomimetic resonator / "flying saucer" model) operating in a viscous medium, utilizing the **Lattice Boltzmann Method (D2Q9 model)**.
 
 ## Scientific Foundation & Engine Physics
 
-The simulation is mathematically and physically grounded in the experimental and theoretical research of asymmetric vibration dynamics in fluid media.
+The simulation is grounded in experimental and theoretical studies of asymmetric high-frequency oscillations of bodies in a viscous fluid.
 
-### 1. The Phenomenon of Anomalous Aerodynamic Drag
-The core operational principle relies on the non-linear effects of unsteady fluid dynamics investigated by S.A. Gerasimov (2008). 
-* **Dynamic Boundary Layer Modification:** When a plate or asymmetric body undergoes rapid, high-frequency oscillations, the aerodynamic drag coefficient ($C_d$) increases dramatically—reaching values up to $\approx 6.5$, compared to the steady-state value of just $1.1$ in uniform wind tunnel flows.
-* **Added Mass Interaction:** This anomalous drag multiplication is caused by the heavy involvement of the fluid's **added mass** ($M_{added}$). The rapid directional shifts of the boundary layer trap and accelerate the surrounding medium, creating highly localized pressure gradients.
+### 1. Anomalous Aerodynamic Drag and Added Mass
 
-### 2. Direction of Motion & Vortex-Oscillatory Thrust
-Contrary to classical intuition regarding symmetric mass expulsion, an asymmetric vibrating body generates directed propulsion through **medium management**  (Kandyba, 2025):
-* **Vortex Ring Formation:** During the cycle of high-acceleration oscillation, the asymmetric geometry separates the fluid flow unevenly, generating coherent toroidal vortex structures (vortex rings).
-* **Pressure Drop Generation:** These vortices act as a collapse of low-pressure zones with the release of free thermal energy of the environment in the form of self-organization of Brownian motion. By controlling the velocity profile asymmetry (the wave acceleration profile), the resonator creates a sustained pressure differential ($\Delta P$) between its upper and lower surfaces, producing a clean net thrust vector without requiring traditional open-loop propellant ejection.
-* **Simulation:** The solution represents an empirical simplified model – by accumulating the resistance energy from the oscillations and releasing it as a force in the opposite direction in the next half-cycle. This allows for a fairly realistic visualization of the experimentally observed phenomenon.
+The physical basis of the model is the phenomenon of anomalous increase of the drag coefficient under rapid oscillations, experimentally investigated by S.A. Gerasimov (2008). When a plate or an asymmetric body performs high-frequency oscillations, the effective drag coefficient $C_d$ rises to values of order $6.5$, whereas the steady-flow value in a wind tunnel is approximately $1.1$.  
 
-### 3. Barotropic Vacuum Collapse & Dynamic LBM Density Sampling
-In the latest framework update, the thrust generation engine transitions from a purely empirical energy accumulator to a physically grounded energy model driven by real-time fluidic pressure gradients ($\Delta P_{\mathrm{cavity}}$) sampled directly from the LBM grid:
-* **Dynamic Pressure Differential:** Instead of assuming a static density, the solver samples the local fluid density directly at the boundary of the solid mask ($\bar{\rho}_{\mathrm{surface}}$). The effective rarefaction is calculated as $\Delta P_{\mathrm{cavity}} = \max\left(0.05, P_0 - \bar{\rho}_{\mathrm{surface}}\right)$, reflecting real-time fluidic rarefaction induced by the vehicle's motion.
+This amplification is caused by the intense involvement of the fluid added mass. Rapid reversal of the boundary-layer motion traps and accelerates a substantial volume of the surrounding medium, generating strong localized pressure gradients. The present LBM implementation reproduces the essential consequence of this mechanism: the formation of a low-pressure cavity adjacent to the oscillating surface and the subsequent release of the stored energy as a directed impulse.
 
-* **Energy Accumulation & Barotropic Impulse:** The potential energy stored within the self-induced low-pressure cavity is modeled as $E_{\mathrm{stored}} = \Delta P_{\mathrm{cavity}} \cdot A_{\mathrm{eff}} \cdot |v_{\mathrm{target}}|$. Upon stroke reversal, the implosive collapse of this cavity generates a concentrated barotropic thrust pulse ($F_{\mathrm{collapse}} = \eta_{\mathrm{col}} \cdot E_{\mathrm{stored}} \cdot \mathrm{sgn}(v) \cdot k_{\mathrm{shock}}$).
+### 2. Directed Thrust by Medium Management
 
-* **Dynamic Collapse Coefficients (update):**  
-  The recovery efficiency $\eta_{\mathrm{col}}$ and shock amplification $k_{\mathrm{shock}}$ are no longer fixed constants. They are computed dynamically from the instantaneous rarefaction depth and deformation velocity:
+Directed propulsion arises without expulsion of mass. According to the conceptual framework developed by Kandyba (2025) and earlier experimental work on vibroplanes (Lozovsky, 1998), an asymmetrically oscillating body organizes the surrounding fluid into coherent vortical structures.  
+
+During the high-acceleration half-cycle the body separates the flow unevenly, producing toroidal vortex formations. These structures maintain a sustained pressure differential $\Delta P$ across the body. Net thrust is obtained by controlling the temporal and spatial asymmetry of the velocity profile (stroke acceleration bias and traveling-wave envelope). The numerical model realizes this principle through an energy-accumulation / collapse cycle that converts the work performed against the fluid into a directed force impulse at stroke reversal.
+
+### 3. Barotropic Cavity Collapse Model
+
+Thrust generation is formulated as a barotropic collapse of a self-induced low-pressure cavity whose parameters are sampled directly from the LBM density field.
+
+- Local fluid density is averaged over the solid-mask boundary cells:
   $$
-  \Delta P_{\mathrm{norm}} = \mathrm{clip}\left(\frac{\Delta P_{\mathrm{cavity}}}{0.45},\, 0,\, 1.8\right), \quad
-  v_{\mathrm{norm}} = \mathrm{clip}\left(\frac{|v_{\mathrm{target}}|}{0.18},\, 0,\, 1.6\right)
+  \bar{\rho}_{\mathrm{surface}} = \langle\rho\rangle_{\mathrm{mask}}.
   $$
+- The instantaneous rarefaction depth is defined as
   $$
-  \eta_{\mathrm{col}} = 0.07 + 0.22 \cdot \Delta P_{\mathrm{norm}} \cdot (0.55 + 0.45 \cdot v_{\mathrm{norm}})
+  \Delta P_{\mathrm{cavity}} = \max\bigl(0.05,\; 1 - \bar{\rho}_{\mathrm{surface}}\bigr).
   $$
+- Potential energy stored in the cavity is accumulated according to
   $$
-  k_{\mathrm{shock}} = 1.25 + 0.55 \cdot \Delta P_{\mathrm{norm}}
+  E_{\mathrm{stored}} = \Delta P_{\mathrm{cavity}}\cdot A_{\mathrm{eff}}\cdot |v_{\mathrm{target}}|,
   $$
-  This makes the strength of the collapse impulse dependent on the actual hydrodynamic state of the cavity, improving physical consistency and transferability to more advanced models.
+  where $A_{\mathrm{eff}}$ is the instantaneous number of solid cells and $v_{\mathrm{target}}$ is the prescribed surface velocity.
 
-### 4. Mode-Dependent Feedback & Smooth Medusa–Fish Transition
-The environmental feedback (resistance accumulator) now acts differently depending on the operating regime:
-* **Temporal asymmetry** (faster power stroke / slower recovery) is scaled by the medusa weight $w_{\perp}$ and smoothly disappears as the body transitions to pure traveling-wave (fish) mode.
-* **Spatial asymmetry** (tail-amplitude amplification) is scaled to become stronger in fish mode.
-* Base frequency reduction under load remains common to both regimes.  
-This prevents unnatural one-sided tail acceleration in fish mode while preserving the correct propulsive asymmetry of the medusa regime.
+At each reversal of the oscillation direction the stored energy is released as a concentrated impulse
+$$
+F_{\mathrm{collapse}} = \eta_{\mathrm{col}}\cdot E_{\mathrm{stored}}\cdot\mathrm{sgn}(v)\cdot k_{\mathrm{shock}}.
+$$
 
-### 5. Emergent Rotational Dynamics
-Yaw rotation is no longer driven solely by an artificial control torque. A physically emergent torque is calculated via the **momentum-exchange method**: the difference in fluid momentum on solid cells before and after velocity imposition yields local hydrodynamic forces. The resulting moment $\boldsymbol{\tau} = \sum (\mathbf{r} \times \mathbf{F})$ is applied to the rigid-body angular dynamics. An optional weak control torque can still be added for manual steering.
+The recovery efficiency $\eta_{\mathrm{col}}$ and the shock-amplification factor $k_{\mathrm{shock}}$ are evaluated dynamically from the current hydrodynamic state:
+$$
+\begin{aligned}
+\Delta P_{\mathrm{norm}} &= \mathrm{clip}\Bigl(\frac{\Delta P_{\mathrm{cavity}}}{0.45},\,0,\,1.8\Bigr),\\
+v_{\mathrm{norm}} &= \mathrm{clip}\Bigl(\frac{|v_{\mathrm{target}}|}{0.18},\,0,\,1.6\Bigr),\\
+\eta_{\mathrm{col}} &= 0.07 + 0.22\cdot\Delta P_{\mathrm{norm}}\cdot(0.55 + 0.45\cdot v_{\mathrm{norm}}),\\
+k_{\mathrm{shock}} &= 1.25 + 0.55\cdot\Delta P_{\mathrm{norm}}.
+\end{aligned}
+$$
+These functional forms reflect the experimentally observed dependence of collapse intensity on rarefaction depth and on the speed of cavity expansion/contraction. The numerical coefficients are phenomenological and have been calibrated to reproduce the order of magnitude of impulses recorded in laboratory vibroplane experiments; they are not derived from first-principles closure relations.
 
-### 6. Macro-Analogue to Quantum Hydrodynamics
-In advanced theoretical frameworks, this mechanism is modeled as a macroscopic analogue to an elementary particle interacting with a non-empty vacuum substrate. By manipulating the local boundary layers and vortex filaments, the craft transitions from "expelling mass" to "modifying the medium geometry," representing a biomechanically inspired step toward advanced propulsion.
+### 4. Regime-Dependent Feedback
 
+Environmental resistance modulates the oscillator parameters through a single accumulator. The feedback is decomposed into two physically distinct contributions that vary continuously with the kinematic regime:
+
+- Temporal asymmetry (unequal duration of the power and recovery strokes) is proportional to the medusa-mode weight $w_{\perp}=1-w_{\mathrm{wave}}$ and therefore vanishes in pure traveling-wave (fish) mode.
+- Spatial amplitude envelope (progressive increase of oscillation amplitude toward the trailing edge) is weighted toward the fish-mode coefficient $w_{\mathrm{wave}}$.
+
+Frequency reduction under load remains common to both regimes. The decomposition prevents non-physical one-sided acceleration of the traveling wave while preserving the propulsive advantage of temporal asymmetry in the medusa regime.
+
+### 5. Rotational Dynamics
+
+Angular motion of the body is obtained from the hydrodynamic torque computed by the momentum-exchange method. The change in fluid momentum on every solid cell caused by the imposition of the prescribed surface velocity yields a local force. Summation of the moments of these forces about the geometric centre supplies the instantaneous torque
+$$
+\tau = \sum_{i\in\mathrm{mask}} \mathbf{r}_i\times\mathbf{F}_i.
+$$
+The torque is integrated together with a linear rotational damping term according to the rigid-body equation of motion. An optional external control moment may be superposed for manual steering; the dominant contribution, however, remains the emergent hydrodynamic torque.
+
+### 6. Macroscopic Analogy
+
+Within a broader theoretical interpretation the described mechanism is regarded as a macroscopic analogue of an elementary excitation interacting with a non-empty vacuum-like substrate. By continuous reorganization of boundary layers and vortex filaments the oscillating body modifies the geometry of the surrounding medium rather than expelling mass, thereby realizing a biomechanically inspired route toward advanced propulsion concepts.
 
 ---
 
@@ -82,15 +99,15 @@ The simulated Python application allows you to tweak the physical parameters of 
 
 * **Fluid Properties:** Adjust grid relaxation time ($\tau$), modifying fluid viscosity and Reynolds number dynamics.
 * **Object Mass:** Scale the inertia of the body to observe how it handles buoyancy vs. acceleration forces.
-* **Dynamic Waveform Editor:** * *Frequency (Hz)* & *Oscillation Amplitude* control the kinematics of the resonator.
+* **Dynamic Waveform Editor:** *Frequency (Hz)* & *Oscillation Amplitude* control the kinematics of the resonator.
   * *Velocity Profile Asymmetry* changes the stroke acceleration bias to optimize thrust generation.
-* **Visualization Modes:** Toggle between Velocity Magnitude mapping and Vorticity fields using a professional high-contrast multi-color CFD palette.
+* **Visualization Modes:** Toggle between Pressure, Pressure Deviation and Vorticity fields using a professional high-contrast multi-color CFD palette.
 
-* ## Try it Online
+## Try it Online
 
-You can try for free online:
-**[🛸🌊CFD Simulation](https://www.masterogon.art/index.php/flying-saucer-simulation/)**
+You can try for free online:  
+**[🛸🌊CFD Simulation](https://www.masterogon.art/index.php/flying-saucer-simulation/)**  
 
-**[🛸🧑‍✈️Flyght Simulator](https://www.masterogon.art/index.php/flying-saucer-simulator-2/)**
+**[🛸🧑‍✈️Flight Simulator](https://www.masterogon.art/index.php/flying-saucer-simulator-2/)**  
 
-**[🚬🧑‍✈️Flyght Simulator](https://www.masterogon.art/index.php/ufo-cigar-flight-simulator/)**
+**[🚬🧑‍✈️Flight Simulator](https://www.masterogon.art/index.php/ufo-cigar-flight-simulator/)**
