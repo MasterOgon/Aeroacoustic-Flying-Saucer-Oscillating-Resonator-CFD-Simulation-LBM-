@@ -125,6 +125,8 @@ def simulate(
     resistance_accumulator = 0.0
     release_force = 0.0
     smoothed_thrust = 0.0
+    wake_pos = 0.0
+    wake_neg = 0.0
     last_wave_dir = 0.0
 
     current_phase = 0.0
@@ -260,22 +262,40 @@ def simulate(
 
         current_dir = np.sign(v_target) if abs(v_target) > 1e-5 else 0.0
 
-        # Научно более обоснованный динамический коэффициент
-        delta_P_norm = np.clip(actual_delta_P / 0.45, 0.0, 1.8)      # нормализуем типичный диапазон
-        vel_norm     = np.clip(abs(v_target) / 0.18, 0.0, 1.6)
+        
+        # Нормируем перепад давления и размах (амплитуду) работы двигателя
+        delta_P_norm   = np.clip(actual_delta_P / 0.45, 0.0, 1.8)      
+        amplitude_norm = np.clip(amplitude / 5.0, 0.0, 2.0)        # Энергия зависит от масштаба колебаний
 
-        eta_col = 0.07 + 0.22 * delta_P_norm * (0.55 + 0.45 * vel_norm)
-        k_shock = 1.25 + 0.55 * delta_P_norm          # удар тоже усиливается с глубиной каверны
+        # КПД коллапса определяется термодинамическим потенциалом и размахом, 
+        # но не обнуляется ложно в точке смены знака скорости
+        eta_col = 0.35 * delta_P_norm * (amplitude_norm / (0.3 + amplitude_norm)) 
+        k_shock = 1.0 + 0.8 * delta_P_norm                         # Ударный гидромолот каверны
 
         
-
+        # При смене полутакта сброшенная энергия формирует вихревое кольцо
         if current_dir != last_wave_dir and last_wave_dir != 0:
-            release_boost = eta_col * resistance_accumulator * last_wave_dir * k_shock
-            release_force = release_boost
+            boost_magnitude = eta_col * resistance_accumulator * k_shock
+            
+            # Направляем порцию энергии в нужный вихревой шлейф без изменения знака
+            if last_wave_dir > 0:
+                wake_pos = boost_magnitude
+            else:
+                wake_neg = boost_magnitude
+                
             resistance_accumulator *= 0.35
             last_wave_dir = current_dir
-        else:
-            release_force *= 0.85
+
+        # Каждый вихревой шлейф независимо затухает, сохраняя инерцию в своем направлении
+        wake_pos *= 0.88
+        wake_neg *= 0.88
+        
+        # Результирующая сила — это честная сумма инерционных следов вихрей в среде
+        release_force = wake_pos - wake_neg
+        
+        
+
+        
 
         if last_wave_dir == 0.0:
             last_wave_dir = current_dir
