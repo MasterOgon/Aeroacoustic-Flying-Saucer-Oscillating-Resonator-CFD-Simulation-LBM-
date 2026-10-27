@@ -20,42 +20,14 @@ This amplification is caused by the intense involvement of the fluid added mass.
 
 ### 2. Directed Thrust by Medium Management
 
-Directed propulsion arises without expulsion of mass. According to the conceptual framework developed by Kandyba (2025) and earlier experimental work on vibroplanes (Lozovsky, 1998), an asymmetrically oscillating body organizes the surrounding fluid into coherent vortical structures.  
+Directed propulsion arises without expulsion of mass. According to the conceptual framework and experimental work (on vibroplanes (Kandyba 2025) , an asymmetrically oscillating body organizes the surrounding fluid into coherent vortical structures.  
 
 During the high-acceleration half-cycle the body separates the flow unevenly, producing toroidal vortex formations. These structures maintain a sustained pressure differential $\Delta P$ across the body. Net thrust is obtained by controlling the temporal and spatial asymmetry of the velocity profile (stroke acceleration bias and traveling-wave envelope). The numerical model realizes this principle through an energy-accumulation / collapse cycle that converts the work performed against the fluid into a directed force impulse at stroke reversal.
 
-### 3. Barotropic Cavity Collapse Model
+### 3. Model
 
-Thrust generation is formulated as a barotropic collapse of a self-induced low-pressure cavity whose parameters are sampled directly from the LBM density field.
+Thrust generation is formulated as a barotropic collapse of a self-induced low-pressure cavity whose parameters are sampled directly from the LBM density field. The key feature of the model is the method of transferring the medium's momentum with a phase shift. The energy obtained from the grid does not act on the mask immediately, but accumulates as potential collapse energy.
 
-- Local fluid density is averaged over the solid-mask boundary cells:
-  $$
-  \bar{\rho}_{\mathrm{surface}} = \langle\rho\rangle_{\mathrm{mask}}.
-  $$
-- The instantaneous rarefaction depth is defined as
-  $$
-  \Delta P_{\mathrm{cavity}} = \max\bigl(0.05,\; 1 - \bar{\rho}_{\mathrm{surface}}\bigr).
-  $$
-- Potential energy stored in the cavity is accumulated according to
-  $$
-  E_{\mathrm{stored}} = \Delta P_{\mathrm{cavity}}\cdot A_{\mathrm{eff}}\cdot |v_{\mathrm{target}}|,
-  $$
-  where $A_{\mathrm{eff}}$ is the instantaneous number of solid cells and $v_{\mathrm{target}}$ is the prescribed surface velocity.
-
-At each reversal of the oscillation direction the stored energy is released as a concentrated impulse
-$$
-F_{\mathrm{collapse}} = \eta_{\mathrm{col}}\cdot E_{\mathrm{stored}}\cdot\mathrm{sgn}(v)\cdot k_{\mathrm{shock}}.
-$$
-
-The recovery efficiency $\eta_{\mathrm{col}}$ and the shock-amplification factor $k_{\mathrm{shock}}$ are evaluated dynamically from the current hydrodynamic state:
-$$
-\begin{aligned}
-\Delta P_{\mathrm{norm}} &= \mathrm{clip}\Bigl(\frac{\Delta P_{\mathrm{cavity}}}{0.45},\,0,\,1.8\Bigr),\\
-v_{\mathrm{norm}} &= \mathrm{clip}\Bigl(\frac{|v_{\mathrm{target}}|}{0.18},\,0,\,1.6\Bigr),\\
-\eta_{\mathrm{col}} &= 0.07 + 0.22\cdot\Delta P_{\mathrm{norm}}\cdot(0.55 + 0.45\cdot v_{\mathrm{norm}}),\\
-k_{\mathrm{shock}} &= 1.25 + 0.55\cdot\Delta P_{\mathrm{norm}}.
-\end{aligned}
-$$
 These functional forms reflect the experimentally observed dependence of collapse intensity on rarefaction depth and on the speed of cavity expansion/contraction. The numerical coefficients are phenomenological and have been calibrated to reproduce the order of magnitude of impulses recorded in laboratory vibroplane experiments; they are not derived from first-principles closure relations.
 
 ### 4. Regime-Dependent Feedback
