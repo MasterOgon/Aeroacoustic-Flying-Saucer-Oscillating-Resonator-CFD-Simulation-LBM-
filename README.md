@@ -14,9 +14,9 @@ The simulation is grounded in experimental and theoretical studies of asymmetric
 
 ### 1. Anomalous Aerodynamic Drag and Added Mass
 
-The physical basis of the model is the phenomenon of anomalous increase of the drag coefficient under rapid oscillations, experimentally investigated by S.A. Gerasimov (2008). When a plate or an asymmetric body performs high-frequency oscillations, the effective drag coefficient $C_d$ rises to values of order $6.5$, whereas the steady-flow value in a wind tunnel is approximately $1.1$.  
+The physical basis of the model is the phenomenon of anomalous increase of the drag coefficient under rapid oscillations, experimentally investigated by S.A. Gerasimov (2008). When a plate or an asymmetric body performs high-frequency oscillations, the effective drag coefficient $C_d$ rises to values of order $6.5$, whereas the steady-flow value in a wind tunnel is approximately $1.1$. This amplification is caused by the intense involvement of the fluid added mass.  
 
-This amplification is caused by the intense involvement of the fluid added mass. Rapid reversal of the boundary-layer motion traps and accelerates a substantial volume of the surrounding medium, generating strong localized pressure gradients. The present LBM implementation reproduces the essential consequence of this mechanism: the formation of a low-pressure cavity adjacent to the oscillating surface and the subsequent release of the stored energy as a directed impulse.
+The present LBM implementation reproduces the essential consequence of this mechanism: the formation of a low-pressure cavity adjacent to the oscillating surface and the subsequent release of the stored energy as a directed impulse.
 
 ### 2. Directed Thrust by Medium Management
 
