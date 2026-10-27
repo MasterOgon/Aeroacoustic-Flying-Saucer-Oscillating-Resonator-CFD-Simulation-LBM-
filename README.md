@@ -38,15 +38,7 @@ Environmental resistance modulates the oscillator parameters through a single ac
 
 Frequency reduction under load remains common to both regimes. The decomposition prevents non-physical one-sided acceleration of the traveling wave while preserving the propulsive advantage of temporal asymmetry in the medusa regime.
 
-### 5. Rotational Dynamics
-
-Angular motion of the body is obtained from the hydrodynamic torque computed by the momentum-exchange method. The change in fluid momentum on every solid cell caused by the imposition of the prescribed surface velocity yields a local force. Summation of the moments of these forces about the geometric centre supplies the instantaneous torque
-$$
-\tau = \sum_{i\in\mathrm{mask}} \mathbf{r}_i\times\mathbf{F}_i.
-$$
-The torque is integrated together with a linear rotational damping term according to the rigid-body equation of motion. An optional external control moment may be superposed for manual steering; the dominant contribution, however, remains the emergent hydrodynamic torque.
-
-### 6. Macroscopic Analogy
+### 5. Macroscopic Analogy
 
 Within a broader theoretical interpretation the described mechanism is regarded as a macroscopic analogue of an elementary excitation interacting with a non-empty vacuum-like substrate. By continuous reorganization of boundary layers and vortex filaments the oscillating body modifies the geometry of the surrounding medium rather than expelling mass, thereby realizing a biomechanically inspired route toward advanced propulsion concepts.
 
