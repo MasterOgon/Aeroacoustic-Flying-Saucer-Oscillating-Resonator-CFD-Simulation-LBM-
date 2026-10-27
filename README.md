@@ -18,7 +18,7 @@ The physical basis of the model is the phenomenon of anomalous increase of the d
 
 ### 2. Directed Thrust by Medium Management
 
-Directed propulsion arises without expulsion of mass. According to the conceptual framework and experimental work (on vibroplanes (Kandyba 2025) , an asymmetrically oscillating body organizes the surrounding fluid into coherent vortical structures.  
+Directed propulsion arises without expulsion of mass. According to the conceptual framework and experimental work (on vibroplanes (Kandyba 2025) , an asymmetrically oscillating body exchanges its energy through the forces of potential energy of the environment (gravitational force) for the energy of the associated flow.This is possible due to the closed toroidal structure of vortices or collapse, considered as self-organization of thermal motion of particles as a result of geometric constraints. 
 
 During the high-acceleration half-cycle the body separates the flow unevenly, producing toroidal vortex formations. These structures maintain a sustained pressure differential $\Delta P$ across the body. Net thrust is obtained by controlling the temporal and spatial asymmetry of the velocity profile (stroke acceleration bias and traveling-wave envelope). The numerical model realizes this principle through an energy-accumulation / collapse cycle that converts the work performed against the fluid into a directed force impulse at stroke reversal.
 
