@@ -26,9 +26,8 @@ During the high-acceleration half-cycle the body separates the flow unevenly, pr
 
 ### 3. Model
 
-Thrust generation is formulated as a barotropic collapse of a self-induced low-pressure cavity whose parameters are sampled directly from the LBM density field. The key feature of the model is the method of transferring the medium's momentum with a phase shift. The energy obtained from the grid does not act on the mask immediately, but accumulates as potential collapse energy.
+Thrust generation is formulated as a barotropic collapse of a self-induced low-pressure cavity whose parameters are sampled directly from the LBM density field. The key feature of the model is the method of transferring the medium's momentum with a phase shift. The energy obtained from the grid does not act on the mask immediately, but accumulates as potential collapse energy. Various methods of calculating thrust are considered, such as drag inversion, baratropic collapse and bounce-back with the effect of added mass. This allows for a fairly realistic visualization of the experimentally observed phenomenon. 
 
-These functional forms reflect the experimentally observed dependence of collapse intensity on rarefaction depth and on the speed of cavity expansion/contraction. The numerical coefficients are phenomenological and have been calibrated to reproduce the order of magnitude of impulses recorded in laboratory vibroplane experiments; they are not derived from first-principles closure relations.
 
 ### 4. Regime-Dependent Feedback
 
