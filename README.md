@@ -6,17 +6,15 @@
   <img src="./flying_saucer.gif" alt="flying saucer experiment" width="700">
 </p>
 
-This repository contains a Computational Fluid Dynamics (CFD) simulation application built with Python, NumPy, and Gradio. The application simulates the unsteady fluid dynamics and vortex generation produced by an asymmetric oscillating body (biomimetic resonator / "flying saucer" model) operating in a viscous medium, utilizing the **Lattice Boltzmann Method (D2Q9 model)**.
+This repository contains a Computational Fluid Dynamics (CFD) simulation application built with Python, NumPy, and Gradio. The application simulates the unsteady fluid dynamics and vortex generation produced by an asymmetric oscillating body (biomimetic resonator / "flying saucer" model), utilizing the **Lattice Boltzmann Method (D2Q9 model)**.
 
 ## Scientific Foundation & Engine Physics
 
-The simulation is grounded in experimental and theoretical studies of asymmetric high-frequency oscillations of bodies in a viscous fluid.
+The simulation is grounded in experimental and theoretical studies of asymmetric oscillations of bodies in a fluid.
 
 ### 1. Anomalous Aerodynamic Drag and Added Mass
 
 The physical basis of the model is the phenomenon of anomalous increase of the drag coefficient under rapid oscillations, experimentally investigated by S.A. Gerasimov (2008). When a plate or an asymmetric body performs high-frequency oscillations, the effective drag coefficient $C_d$ rises to values of order $6.5$, whereas the steady-flow value in a wind tunnel is approximately $1.1$. This amplification is caused by the intense involvement of the fluid added mass.  
-
-The present LBM implementation reproduces the essential consequence of this mechanism: the formation of a low-pressure cavity adjacent to the oscillating surface and the subsequent release of the stored energy as a directed impulse.
 
 ### 2. Directed Thrust by Medium Management
 
@@ -26,7 +24,8 @@ During the high-acceleration half-cycle the body separates the flow unevenly, pr
 
 ### 3. Model
 
-Thrust generation is formulated as a barotropic collapse of a self-induced low-pressure cavity whose parameters are sampled directly from the LBM density field. The key feature of the model is the method of transferring the medium's momentum with a phase shift. The energy obtained from the grid does not act on the mask immediately, but accumulates as potential collapse energy. Various methods of calculating thrust are considered, such as drag inversion, baratropic collapse and bounce-back with the effect of added mass. This allows for a fairly realistic visualization of the experimentally observed phenomenon. 
+The present LBM implementation reproduces the essential consequence of this mechanism: the formation of a low-pressure cavity adjacent to the oscillating surface and the subsequent release of the stored energy as a directed impulse.
+Thrust generation is formulated as a collapse of a self-induced low-pressure cavity whose parameters are sampled directly from the LBM density field. The key feature of the model is the method of transferring the medium's momentum with a phase shift. The energy obtained from the grid does not act on the mask immediately, but accumulates as potential collapse energy. Various methods of calculating thrust are considered, such as drag inversion, baratropic collapse and bounce-back with the effect of added mass. This allows for a fairly realistic visualization of the experimentally observed phenomenon. 
 
 
 ### 4. Regime-Dependent Feedback
