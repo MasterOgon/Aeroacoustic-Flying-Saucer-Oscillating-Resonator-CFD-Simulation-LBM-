@@ -1,4 +1,4 @@
-  demo.lau# ==========================================
+# ==========================================
 # ОБНОВЛЕННЫЙ ФАЙЛ: POISSON SOLVER + CONTROL VOLUME
 # ==========================================
 import io
@@ -729,18 +729,7 @@ def run_simulation(
                     linestyles="-",
                 )
 
-            # Отрисовка рамки контрольного контура (Control Volume)
-            cv_rect = patches.Rectangle(
-                (CV_X1, CV_Y1),
-                CV_X2 - CV_X1,
-                CV_Y2 - CV_Y1,
-                linewidth=1.1,
-                edgecolor="#a29bfe",
-                facecolor="none",
-                linestyle=":",
-            )
-            ax1.add_patch(cv_rect)
-
+            
             ax1.contour(solid_mask.T, levels=[0.5], colors="white", linewidths=1.8)
             ax1.set_title(
                 f"{env['regime']} | Step: {t}/{steps}\nSpeed:"
