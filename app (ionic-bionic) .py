@@ -1,5 +1,7 @@
+
 # ==========================================
 # ОБНОВЛЕННЫЙ ФАЙЛ: POISSON SOLVER + CONTROL VOLUME
+# + ИНТЕГРИРОВАННЫЙ АЛГОРИТМ ТЯГИ С WAKE LAG (из первого кода)
 # ==========================================
 import io
 import tempfile
@@ -252,59 +254,63 @@ def get_resonator_state(
     )
 
 
-
-
-####
-def compute_ladd_hydro_thrust(
-    f_post_collision: np.ndarray,
+# ==========================================
+# НОВЫЙ АЛГОРИТМ ТЯГИ (из первого кода) + Wake Lag
+# ==========================================
+def compute_ladd_hydro_thrust_with_lag(
+    f_streamed: np.ndarray,
     solid_mask: np.ndarray,
-    ux_wall: np.ndarray,
-    vy_wall: np.ndarray,
+    ux_wall_lag: np.ndarray,
+    vy_wall_lag: np.ndarray,
     rho: np.ndarray,
     slip_factor: float,
 ):
-  """
-  Строгий расчёт гидродинамической тяги по методу обмена импульсом Ладда (MEM)
-  на внешних граничных связях (линках) между жидкостью и твёрдым телом.
-  """
-  fluid_mask = ~solid_mask
-  fx_ladd = 0.0
+    """
+    Модифицированный Moving Bounce-Back (Ladd) с локальной плотностью
+    + использование запаздывающих скоростей стенки (Wake / Pressure Recovery Lag).
+    Именно это позволяет получать ненулевую среднюю тягу от асимметричных колебаний.
+    """
+    fluid_mask = ~solid_mask
+    fx_ladd = 0.0
+    fy_ladd = 0.0
 
-  # Перебираем все 8 ненулевых направлений скоростей решётки D2Q9
-  for i in range(1, 9):
-    # Сдвигаем маску жидкости в направлении i, чтобы найти узлы жидкости,
-    # из которых частица на шаге сдвига (streaming) влетит внутрь solid_mask
-    fluid_neighbor_enters_solid = solid_mask & np.roll(
-        fluid_mask, shift=(cx[i], cy[i]), axis=(0, 1)
-    )
+    f_post = f_streamed.copy()
 
-    if not np.any(fluid_neighbor_enters_solid):
-      continue
+    for i in range(1, 9):
+        i_opp = opp[i]
+        cx_i = cx[i]
+        cy_i = cy[i]
 
-    # Распределение частиц f_in, летящих из узла жидкости к стенке в направлении i
-    f_shifted = np.roll(f_post_collision[i], shift=(cx[i], cy[i]), axis=(0, 1))
-    f_in = f_shifted[fluid_neighbor_enters_solid]
+        # Граничные узлы: жидкость → внутрь тела
+        boundary_mask = fluid_mask & np.roll(solid_mask, shift=(-cx_i, -cy_i), axis=(0, 1))
 
-    # Параметры стенки в точке пересечения связи
-    u_w = ux_wall[fluid_neighbor_enters_solid]
-    v_w = vy_wall[fluid_neighbor_enters_solid]
-    r_local = rho[fluid_neighbor_enters_solid]
-    cu_wall = cx[i] * u_w + cy[i] * v_w
+        if not np.any(boundary_mask):
+            continue
 
-    # 1. Импульс при вязком прилипании (Bounce-Back):
-    # Частица разворачивается в opp[i] (cx[opp[i]] = -cx[i]) и получает импульс стенки
-    f_out_bb = f_in - 6.0 * w[i] * r_local * cu_wall
-    dp_x_bb = cx[i] * (f_in + f_out_bb)
+        # Запаздывающие скорости стенки (ключевой элемент lag)
+        uw_x = ux_wall_lag[boundary_mask]
+        uw_y = vy_wall_lag[boundary_mask]
+        rho_local = rho[boundary_mask]
 
-    # 2. Импульс при зеркальном скольжении (Specular Reflection по оси Y):
-    # Отражение от горизонтальной поверхности не меняет X-компоненту скорости (cx[spec_y[i]] == cx[i]),
-    # поэтому продольный импульс X стенке не передаётся (кроме нормального давления на кривизну)
-    dp_x_sp = 0.0
+        # Член передачи импульса (как в первом коде)
+        momentum_transfer = 6.0 * w[i] * rho_local * (cx_i * uw_x + cy_i * uw_y)
 
-    # Взвешенная сумма по коэффициенту прилипания slip_factor
-    fx_ladd += float(np.sum(slip_factor * dp_x_bb + (1.0 - slip_factor) * dp_x_sp))
+        f_incoming = f_streamed[i, boundary_mask]
+        f_reflected = f_incoming - momentum_transfer
 
-  return fx_ladd
+        # Применяем отражение
+        f_post[i_opp, boundary_mask] = f_reflected
+
+        # Импульс, переданный телу (3-й закон Ньютона)
+        delta_p_x = cx_i * (f_incoming + f_reflected)
+        delta_p_y = cy_i * (f_incoming + f_reflected)
+
+        # Учёт slip_factor (смесь no-slip / specular)
+        fx_ladd += float(np.sum(slip_factor * delta_p_x))
+        fy_ladd += float(np.sum(slip_factor * delta_p_y))
+
+    return fx_ladd, fy_ladd, f_post
+
 
 # ==========================================
 # 4. SELF-CONSISTENT POISSON & DYNAMIC ION CLOUD
@@ -502,6 +508,11 @@ def run_simulation(
     q_ion = np.zeros((NX, NY), dtype=np.float32)
     prev_P_cv_x = 0.0
 
+    # === Wake Lag (Pressure Recovery Lag) — ключевое нововведение ===
+    ux_wall_lag = np.zeros((NX, NY), dtype=np.float32)
+    vy_wall_lag = np.zeros((NX, NY), dtype=np.float32)
+    wake_relaxation = 0.05          # коэффициент памяти среды (как в первом коде)
+
     for t in range(steps):
         (
             solid_mask,
@@ -513,6 +524,10 @@ def run_simulation(
             ny_surf,
             c_wave_lbm,
         ) = get_resonator_state(t, freq, amp, voltage_gain, mode_fish)
+
+        # Обновление запаздывающих скоростей стенки (догоняющая присоединённая масса)
+        ux_wall_lag += wake_relaxation * (ux_wall - ux_wall_lag)
+        vy_wall_lag += wake_relaxation * (vy_wall - vy_wall_lag)
 
         if t > 0:
             uncovered = prev_solid_mask & (~solid_mask)
@@ -560,21 +575,18 @@ def run_simulation(
             ux += fx_em_plasma / (rho + 1e-12)
             uy += fy_em_plasma / (rho + 1e-12)
             fx_em_craft = float(np.sum(em_permittivity * q_surf * Ex))
-                # ==========================================================
+
+        # ==========================================================
         # БЛОК СТАБИЛИЗАЦИИ ДЛЯ ПЛОТНОЙ АТМОСФЕРЫ И ВЫСОКИХ СКОРОСТЕЙ
         # ==========================================================
-        # 1. Защита плотности от ухода в ноль или бесконечность на острых краях
         rho = np.clip(rho, 0.25, 4.5)
 
-        # 2. Векторный ограничитель скорости (сохраняет направление, но держит число Маха < 0.3)
         speed_sq = ux**2 + uy**2
         max_u = 0.30
         scale = np.where(speed_sq > max_u**2, max_u / (np.sqrt(speed_sq) + 1e-12), 1.0)
         ux *= scale
         uy *= scale
 
-        # 3. Адаптивная подсеточная вязкость (модель Смагоринского LES)
-        # Гасит численный взрыв только в точках резких градиентов скорости
         dux_dx, dux_dy = np.gradient(ux)
         duy_dx, duy_dy = np.gradient(uy)
         strain_rate = np.sqrt(2.0 * (dux_dx**2 + duy_dy**2) + (dux_dy + duy_dx)**2)
@@ -583,39 +595,31 @@ def run_simulation(
         # ==========================================================
 
         feq = equilibrium(rho, ux, uy)
-        # Используем матрицу omega_local вместо скалярного числа omega
         f = f - omega_local[None, :, :] * (f - feq)
 
-            
-                
-        
+        # ========== STREAMING ==========
+        f_streamed = np.zeros_like(f)
+        for i in range(9):
+            f_streamed[i] = np.roll(f[i], shift=(cx[i], cy[i]), axis=(0, 1))
 
-        # 1. Вычисляем честную гидродинамическую тягу по граничным связям Ладда
-        # (строго ДО перезаписи f внутри solid_mask)
-        fx_hydro = compute_ladd_hydro_thrust(
-            f_post_collision=f,
+        # ========== НОВЫЙ РАСЧЁТ ТЯГИ + Moving Bounce-Back с лагом ==========
+        fx_hydro, fy_hydro, f = compute_ladd_hydro_thrust_with_lag(
+            f_streamed=f_streamed,
             solid_mask=solid_mask,
-            ux_wall=ux_wall,
-            vy_wall=vy_wall,
+            ux_wall_lag=ux_wall_lag,
+            vy_wall_lag=vy_wall_lag,
             rho=rho,
             slip_factor=slip_factor,
         )
 
-        # 2. Применяем граничные условия на стенке (физика течения остаётся прежней)
-        f_bb = f[opp]
-        f_sp = f[spec_y]
-        wall_momentum = np.zeros_like(f)
-        for i in range(9):
-          cu_wall = cx[i] * ux_wall + cy[i] * vy_wall
-          wall_momentum[i] = 6.0 * w[i] * rho * cu_wall * slip_factor
-        f_boundary = slip_factor * (f_bb + wall_momentum) + (1.0 - slip_factor) * f_sp
-        f[:, solid_mask] = f_boundary[:, solid_mask]
+        # Дополнительно применяем specular-компоненту для slip (если нужно)
+        if slip_factor < 0.999:
+            f_sp = f[spec_y]
+            f[:, solid_mask] = (
+                slip_factor * f[:, solid_mask] + (1.0 - slip_factor) * f_sp[:, solid_mask]
+            )
 
-
-        
-        for i in range(9):
-            f[i] = np.roll(f[i], shift=(cx[i], cy[i]), axis=(0, 1))
-
+        # Граничные условия на входе/выходе
         ux[0, :] = u_inflow
         uy[0, :] = 0.0
         rho[0, :] = 1.0
@@ -729,7 +733,6 @@ def run_simulation(
                     linestyles="-",
                 )
 
-            
             ax1.contour(solid_mask.T, levels=[0.5], colors="white", linewidths=1.8)
             ax1.set_title(
                 f"{env['regime']} | Step: {t}/{steps}\nSpeed:"
@@ -748,7 +751,7 @@ def run_simulation(
                 color="#ff6b6b",
                 alpha=0.85,
                 linewidth=1.1,
-                label="Hydro Thrust",
+                label="Hydro Thrust (Lag)",
             )
             ax2.plot(
                 t_axis,
@@ -816,13 +819,15 @@ def run_simulation(
 # 7. GRADIO WEB INTERFACE
 # ==========================================
 with gr.Blocks(
-    title="Multi-Regime Resonator: Poisson + Control Volume"
+    title="Multi-Regime Resonator: Poisson + Control Volume + Wake Lag Thrust"
 ) as demo:
     gr.Markdown(
         """
-        # 🌌 Multi-Regime Wave Resonator (Self-Consistent Poisson + Control Volume)
-        - Self-Consistent Field: 2D Poisson equation ($\nabla^2 \phi = -q_{ion}$) solved via Red-Black SOR with advected & finite-relaxation ion space charge.
-        - Momentum Conservation: Dotted purple box shows the Control Volume integrating hydrodynamic momentum flux, Maxwell stress tensor, and internal momentum rate $dP/dt$.
+        # 🌌 Multi-Regime Wave Resonator (Self-Consistent Poisson + Control Volume + Wake Lag)
+        - **Новый алгоритм тяги**: Moving Bounce-Back (Ladd) с локальной плотностью + **Pressure Recovery Lag** (запаздывающие скорости стенки).
+        - Позволяет получать ненулевую среднюю тягу от асимметричных колебаний за счёт эффекта догоняющей присоединённой массы и вихревой пропульсии.
+        - Self-Consistent Field: 2D Poisson equation ($\nabla^2 \phi = -q_{ion}$) solved via Red-Black SOR.
+        - Momentum Conservation: Control Volume integrating hydrodynamic momentum flux + Maxwell stress tensor.
         """
     )
     with gr.Row():
@@ -899,3 +904,5 @@ with gr.Blocks(
 
 if __name__ == "__main__":
     demo.launch()
+
+
