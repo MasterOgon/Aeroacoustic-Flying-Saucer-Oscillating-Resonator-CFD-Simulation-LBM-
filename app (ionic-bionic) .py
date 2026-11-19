@@ -681,17 +681,45 @@ def run_simulation(
                     alpha=0.9,
                     interpolation="bilinear",
                 )
+
+                
             else:
+                from matplotlib.colors import PowerNorm
+
                 speed = np.sqrt(ux**2 + uy**2)
+                speed_pert = np.abs(speed - u_inflow)
+                v_top = max(0.04, float(np.percentile(speed_pert, 99.0)))
+
                 ax1.imshow(
-                    speed.T,
+                    speed_pert.T,
                     origin="lower",
                     cmap="viridis",
-                    vmin=0.0,
-                    vmax=0.20,
+                    norm=PowerNorm(gamma=0.65, vmin=0.0, vmax=v_top),
                     aspect="auto",
-                    alpha=0.9,
+                    alpha=0.92,
+                    interpolation="bilinear",
                 )
+
+                if debye_radius > 0.2 and voltage_gain > 0.0:
+                    if float(np.max(np.abs(phi))) > 0.05:
+                        ax1.contour(
+                            phi.T,
+                            levels=[0.05, 0.25, 0.55],
+                            colors=["#ff9f43"],
+                            linewidths=1.2,
+                            linestyles="--",
+                        )
+                    ax1.contour(
+                        phi.T,
+                        levels=[-0.55, -0.25, -0.05],
+                        colors=["#00d2d3"],
+                        linewidths=1.4,
+                        linestyles="-",
+                    )
+                    
+            
+            
+            
 
             if (
                 show_streamlines
