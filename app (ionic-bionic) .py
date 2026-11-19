@@ -1,7 +1,7 @@
-
 # ==========================================
 # ОБНОВЛЕННЫЙ ФАЙЛ: POISSON SOLVER + CONTROL VOLUME
 # + ИНТЕГРИРОВАННЫЙ АЛГОРИТМ ТЯГИ С WAKE LAG (из первого кода)
+# + СОГЛАСОВАНИЕ ПЛОТНОСТИ СРЕДЫ И ЧЕСТНАЯ ТЕЛЕМЕТРИЯ РЕЖИМОВ
 # ==========================================
 import io
 import tempfile
@@ -54,6 +54,7 @@ cfd_multicolor_cmap = LinearSegmentedColormap.from_list(
 )
 cfd_multicolor_cmap.set_bad(color="white")
 
+
 # ==========================================
 # 2. 5-REGIME ENVIRONMENT MODEL (EARTH TO ISM)
 # ==========================================
@@ -61,6 +62,7 @@ def get_mission_environment(stage_pct: float, craft_speed_kms: float):
     if stage_pct <= 20.0:
         t = stage_pct / 20.0
         regime = f"1. Dense Atmosphere ({t*40:.0f} km) — Vortices + EGD Ion Wind"
+        model_scope = "Continuum CFD + EGD"
         slip_factor = 1.0 - 0.15 * t
         ehd_coupling = 0.025 * (1.0 + 0.8 * t)
         ion_coupling = 0.0
@@ -73,6 +75,7 @@ def get_mission_environment(stage_pct: float, craft_speed_kms: float):
     elif stage_pct <= 40.0:
         t = (stage_pct - 20.0) / 20.0
         regime = f"2. Mesosphere ({40 + t*60:.0f} km) — EGD Peak + Slip"
+        model_scope = "Slip-Flow CFD + EGD"
         slip_factor = 0.85 - 0.75 * t
         ehd_coupling = 0.045 * (1.0 - 0.7 * t)
         ion_coupling = 0.015 * t
@@ -84,7 +87,8 @@ def get_mission_environment(stage_pct: float, craft_speed_kms: float):
         tau = 0.63 + 0.17 * t
     elif stage_pct <= 65.0:
         t = (stage_pct - 40.0) / 25.0
-        regime = f"3. Ionosphere ({100 + t*700:.0f} km) — Debye Fin"
+        regime = f"3. Ionosphere ({100 + t*700:.0f} km) — Debye Fin (Proxy)"
+        model_scope = "Phenomenological Weak-Plasma Proxy"
         slip_factor = 0.10 * (1.0 - t)
         ehd_coupling = 0.013 * (1.0 - t)
         ion_coupling = 0.015 + 0.035 * t
@@ -96,7 +100,8 @@ def get_mission_environment(stage_pct: float, craft_speed_kms: float):
         tau = 0.80 + 0.10 * t
     elif stage_pct <= 85.0:
         t = (stage_pct - 65.0) / 20.0
-        regime = "4. Interplanetary Plasma (Solar Wind, >2nd Cosmic)"
+        regime = "4. Interplanetary Plasma (Solar Wind — Proxy)"
+        model_scope = "Phenomenological Collisionless Proxy"
         slip_factor = 0.0
         ehd_coupling = 0.0
         ion_coupling = 0.055
@@ -108,7 +113,8 @@ def get_mission_environment(stage_pct: float, craft_speed_kms: float):
         tau = 0.92
     else:
         t = (stage_pct - 85.0) / 15.0
-        regime = "5. Interstellar Medium (ISM — Ultra-low Density)"
+        regime = "5. Interstellar Medium (ISM — Proxy)"
+        model_scope = "Phenomenological ISM Proxy (Non-Fluid)"
         slip_factor = 0.0
         ehd_coupling = 0.0
         ion_coupling = 0.060
@@ -125,6 +131,7 @@ def get_mission_environment(stage_pct: float, craft_speed_kms: float):
 
     return {
         "regime": regime,
+        "model_scope": model_scope,
         "slip_factor": slip_factor,
         "ehd_coupling": ehd_coupling,
         "ion_coupling": ion_coupling,
@@ -136,6 +143,7 @@ def get_mission_environment(stage_pct: float, craft_speed_kms: float):
         "tau": tau,
         "u_lbm_inflow": u_lbm_inflow,
     }
+
 
 # ==========================================
 # 3. "BACTERIUM" GEOMETRY & SURFACE POTENTIAL
@@ -255,7 +263,7 @@ def get_resonator_state(
 
 
 # ==========================================
-# НОВЫЙ АЛГОРИТМ ТЯГИ (из первого кода) + Wake Lag
+# АЛГОРИТМ ТЯГИ: Moving Bounce-Back + Wake Lag
 # ==========================================
 def compute_ladd_hydro_thrust_with_lag(
     f_streamed: np.ndarray,
@@ -267,8 +275,7 @@ def compute_ladd_hydro_thrust_with_lag(
 ):
     """
     Модифицированный Moving Bounce-Back (Ladd) с локальной плотностью
-    + использование запаздывающих скоростей стенки (Wake / Pressure Recovery Lag).
-    Именно это позволяет получать ненулевую среднюю тягу от асимметричных колебаний.
+    + запаздывающие скорости стенки (Wake / Pressure Recovery Lag).
     """
     fluid_mask = ~solid_mask
     fx_ladd = 0.0
@@ -281,31 +288,25 @@ def compute_ladd_hydro_thrust_with_lag(
         cx_i = cx[i]
         cy_i = cy[i]
 
-        # Граничные узлы: жидкость → внутрь тела
         boundary_mask = fluid_mask & np.roll(solid_mask, shift=(-cx_i, -cy_i), axis=(0, 1))
 
         if not np.any(boundary_mask):
             continue
 
-        # Запаздывающие скорости стенки (ключевой элемент lag)
         uw_x = ux_wall_lag[boundary_mask]
         uw_y = vy_wall_lag[boundary_mask]
         rho_local = rho[boundary_mask]
 
-        # Член передачи импульса (как в первом коде)
         momentum_transfer = 6.0 * w[i] * rho_local * (cx_i * uw_x + cy_i * uw_y)
 
         f_incoming = f_streamed[i, boundary_mask]
         f_reflected = f_incoming - momentum_transfer
 
-        # Применяем отражение
         f_post[i_opp, boundary_mask] = f_reflected
 
-        # Импульс, переданный телу (3-й закон Ньютона)
         delta_p_x = cx_i * (f_incoming + f_reflected)
         delta_p_y = cy_i * (f_incoming + f_reflected)
 
-        # Учёт slip_factor (смесь no-slip / specular)
         fx_ladd += float(np.sum(slip_factor * delta_p_x))
         fy_ladd += float(np.sum(slip_factor * delta_p_y))
 
@@ -334,7 +335,6 @@ def update_self_consistent_field(
     eff_lambda_d = debye_radius * (0.65 + 0.55 * np.sqrt(voltage_gain))
     inv_ld2 = 1.0 / (eff_lambda_d**2)
 
-    # 1. Адвекция ионного облака потоком (upwind) -> след отстаёт и срывается
     dq_dx = np.where(
         ux > 0.0,
         q_ion - np.roll(q_ion, 1, axis=0),
@@ -347,7 +347,6 @@ def update_self_consistent_field(
     )
     q_ion = q_ion - (ux * dq_dx + uy * dq_dy)
 
-    # 2. Конечная скорость релаксации ионов к экранированию Дебая
     q_eq = -phi * inv_ld2
     ion_relax = float(np.clip(0.32 * freq_efficiency, 0.02, 0.45))
     q_ion = np.where(~solid_mask, q_ion + ion_relax * (q_eq - q_ion), 0.0)
@@ -357,7 +356,6 @@ def update_self_consistent_field(
     q_ion[:, 0] = 0.0
     q_ion[:, -1] = 0.0
 
-    # 3. Решение 2D уравнения Пуассона: ∇²φ = -q_ion (Red-Black SOR)
     phi = np.where(solid_mask, phi_wall, phi)
     free_red = RB_RED & (~solid_mask)
     free_black = RB_BLACK & (~solid_mask)
@@ -386,7 +384,6 @@ def update_self_consistent_field(
     phi[:, 0] = 0.0
     phi[:, -1] = 0.0
 
-    # Полный заряд q_all = -∇²φ (внутри solid_mask это поверхностный заряд проводника)
     lap_phi = (
         np.roll(phi, 1, axis=0)
         + np.roll(phi, -1, axis=0)
@@ -396,6 +393,7 @@ def update_self_consistent_field(
     )
     q_surf = np.where(solid_mask, -lap_phi - q_ion, 0.0)
     return phi, q_ion, q_surf
+
 
 # ==========================================
 # 5. CONTROL VOLUME (CV) MOMENTUM & MAXWELL TENSOR
@@ -411,11 +409,9 @@ def compute_control_volume_thrust(
     prev_P_cv_x: float,
     is_first_step: bool,
 ):
-    # Суммарный импульс газа/плазмы внутри контрольного контура
     P_cv_x = float(np.sum(rho[CV_X1:CV_X2, CV_Y1:CV_Y2] * ux[CV_X1:CV_X2, CV_Y1:CV_Y2]))
     dP_dt = 0.0 if is_first_step else (P_cv_x - prev_P_cv_x)
 
-    # Вязкость и градиенты скорости для тензора напряжений жидкости
     nu = (tau - 0.5) / 3.0
     dux_dx, dux_dy = np.gradient(ux)
     duy_dx, _ = np.gradient(uy)
@@ -424,18 +420,15 @@ def compute_control_volume_thrust(
     sigma_xx = -2.0 * nu * rho * dux_dx
     sigma_xy = -nu * rho * (dux_dy + duy_dx)
 
-    # Гидродинамический поток импульса П_xx и П_xy
     Pi_xx = rho * ux * ux + P_press + sigma_xx
     Pi_xy = rho * ux * uy + sigma_xy
 
-    # Втекающий минус вытекающий поток по 4 границам рамки
     flux_in_left = float(np.sum(Pi_xx[CV_X1, CV_Y1:CV_Y2]))
     flux_out_right = float(np.sum(Pi_xx[CV_X2, CV_Y1:CV_Y2]))
     flux_in_bottom = float(np.sum(Pi_xy[CV_X1:CV_X2, CV_Y1]))
     flux_out_top = float(np.sum(Pi_xy[CV_X1:CV_X2, CV_Y2]))
     hydro_net_in = (flux_in_left - flux_out_right) + (flux_in_bottom - flux_out_top)
 
-    # Поток тензора напряжений Максвелла T_EM через границы рамки (вытекающий)
     if em_permittivity > 0.0:
         Ex2 = Ex**2
         Ey2 = Ey**2
@@ -448,10 +441,9 @@ def compute_control_volume_thrust(
     else:
         maxwell_out = 0.0
 
-    # Закон сохранения импульса в замкнутом контуре:
-    # F_craft = Flux_hydro(in - out) + Flux_Maxwell(out) - dP_cv/dt
     f_cv_total = hydro_net_in + maxwell_out - dP_dt
     return f_cv_total, P_cv_x
+
 
 # ==========================================
 # 6. MAIN LBM SIMULATION & ANIMATION LOOP
@@ -468,12 +460,12 @@ def run_simulation(
 ):
     env = get_mission_environment(stage_pct, speed_slider)
     tau = env["tau"]
-    omega = 1.0 / tau
     slip_factor = env["slip_factor"]
     ehd_coupling = env["ehd_coupling"]
     ion_coupling = env["ion_coupling"]
     debye_radius = env["debye_radius"]
     u_inflow = env["u_lbm_inflow"]
+    rho_ambient = float(env["density_factor"])
 
     freq_efficiency = 1.0
     if ion_coupling > 0.0 and freq > env["f_cutoff_lbm"]:
@@ -481,7 +473,8 @@ def run_simulation(
             np.exp(-(((freq - env["f_cutoff_lbm"]) / 0.025) ** 2))
         )
 
-    rho = np.ones((NX, NY), dtype=np.float32)
+    # Инициализация поля с реальной плотностью выбранного эшелона среды
+    rho = np.full((NX, NY), rho_ambient, dtype=np.float32)
     ux = np.full((NX, NY), u_inflow, dtype=np.float32)
     uy = np.zeros((NX, NY), dtype=np.float32)
 
@@ -508,10 +501,13 @@ def run_simulation(
     q_ion = np.zeros((NX, NY), dtype=np.float32)
     prev_P_cv_x = 0.0
 
-    # === Wake Lag (Pressure Recovery Lag) — ключевое нововведение ===
+    # === Wake Lag (Pressure Recovery Lag) ===
     ux_wall_lag = np.zeros((NX, NY), dtype=np.float32)
     vy_wall_lag = np.zeros((NX, NY), dtype=np.float32)
-    wake_relaxation = 0.05          # коэффициент памяти среды (как в первом коде)
+    wake_relaxation = 0.05
+
+    rho_min_clip = 0.25 * rho_ambient
+    rho_max_clip = 4.5 * rho_ambient
 
     for t in range(steps):
         (
@@ -525,7 +521,6 @@ def run_simulation(
             c_wave_lbm,
         ) = get_resonator_state(t, freq, amp, voltage_gain, mode_fish)
 
-        # Обновление запаздывающих скоростей стенки (догоняющая присоединённая масса)
         ux_wall_lag += wake_relaxation * (ux_wall - ux_wall_lag)
         vy_wall_lag += wake_relaxation * (vy_wall - vy_wall_lag)
 
@@ -551,7 +546,6 @@ def run_simulation(
         ux = np.sum(f * cx[:, None, None], axis=0) / (rho + 1e-12)
         uy = np.sum(f * cy[:, None, None], axis=0) / (rho + 1e-12)
 
-        # Самосогласованное поле Пуассона и динамика ионного облака
         phi, q_ion, q_surf = update_self_consistent_field(
             phi,
             q_ion,
@@ -565,9 +559,13 @@ def run_simulation(
         )
 
         Ex, Ey = np.gradient(-phi)
-        em_permittivity = (ehd_coupling + ion_coupling) * (1.0 if voltage_gain > 0.0 else 0.0)
+        # Масштабируем ЭМ-связь пропорционально концентрации носителей заряда среды
+        em_permittivity = (
+            (ehd_coupling + ion_coupling)
+            * rho_ambient
+            * (1.0 if voltage_gain > 0.0 else 0.0)
+        )
 
-        # Честная сила Лоренца/Кулона на плазму (вне тела) и на корпус (поверхностный заряд)
         fx_em_craft = 0.0
         if em_permittivity > 0.0:
             fx_em_plasma = np.where(~solid_mask, em_permittivity * q_ion * Ex, 0.0)
@@ -577,9 +575,9 @@ def run_simulation(
             fx_em_craft = float(np.sum(em_permittivity * q_surf * Ex))
 
         # ==========================================================
-        # БЛОК СТАБИЛИЗАЦИИ ДЛЯ ПЛОТНОЙ АТМОСФЕРЫ И ВЫСОКИХ СКОРОСТЕЙ
+        # БЛОК СТАБИЛИЗАЦИИ (относительно фоновой плотности среды)
         # ==========================================================
-        rho = np.clip(rho, 0.25, 4.5)
+        rho = np.clip(rho, rho_min_clip, rho_max_clip)
 
         speed_sq = ux**2 + uy**2
         max_u = 0.30
@@ -602,7 +600,7 @@ def run_simulation(
         for i in range(9):
             f_streamed[i] = np.roll(f[i], shift=(cx[i], cy[i]), axis=(0, 1))
 
-        # ========== НОВЫЙ РАСЧЁТ ТЯГИ + Moving Bounce-Back с лагом ==========
+        # ========== РАСЧЁТ ТЯГИ + Moving Bounce-Back с лагом ==========
         fx_hydro, fy_hydro, f = compute_ladd_hydro_thrust_with_lag(
             f_streamed=f_streamed,
             solid_mask=solid_mask,
@@ -612,17 +610,16 @@ def run_simulation(
             slip_factor=slip_factor,
         )
 
-        # Дополнительно применяем specular-компоненту для slip (если нужно)
         if slip_factor < 0.999:
             f_sp = f[spec_y]
             f[:, solid_mask] = (
                 slip_factor * f[:, solid_mask] + (1.0 - slip_factor) * f_sp[:, solid_mask]
             )
 
-        # Граничные условия на входе/выходе
+        # Граничные условия на входе/выходе с учётом rho_ambient
         ux[0, :] = u_inflow
         uy[0, :] = 0.0
-        rho[0, :] = 1.0
+        rho[0, :] = rho_ambient
         f[:, 0, :] = equilibrium(rho[0:1, :], ux[0:1, :], uy[0:1, :])[:, 0, :]
         f[:, -1, :] = f[:, -2, :]
 
@@ -653,14 +650,15 @@ def run_simulation(
 
         if t % skip_frames == 0:
             fig, (ax1, ax2) = plt.subplots(
-                2, 1, figsize=(9.5, 6.2), gridspec_kw={"height_ratios": [2.2, 1.1]}
+                2, 1, figsize=(9.5, 6.4), gridspec_kw={"height_ratios": [2.2, 1.15]}
             )
             plt.style.use("dark_background")
 
             if vis_mode == "Pressure Inversion (ΔP — Cavities & Collapse)":
-                dp = (rho - 1.0) * 3.0
+                # Относительное отклонение давления ΔP / P0 для читаемости во всех эшелонах
+                dp_rel = ((rho - rho_ambient) / max(rho_ambient, 1e-12)) * 3.0
                 ax1.imshow(
-                    dp.T,
+                    dp_rel.T,
                     origin="lower",
                     cmap=cfd_multicolor_cmap,
                     vmin=-0.06,
@@ -715,7 +713,6 @@ def run_simulation(
                 except Exception:
                     pass
 
-            # Изолинии самосогласованного потенциала Пуассона
             if debye_radius > 0.2 and voltage_gain > 0.0:
                 if float(np.max(np.abs(phi))) > 0.08:
                     ax1.contour(
@@ -735,10 +732,10 @@ def run_simulation(
 
             ax1.contour(solid_mask.T, levels=[0.5], colors="white", linewidths=1.8)
             ax1.set_title(
-                f"{env['regime']} | Step: {t}/{steps}\nSpeed:"
-                f" {speed_slider:.1f} km/s | λ_D: {env['lambda_d_phys']} | Ion"
-                f" Resp: {freq_efficiency*100:.0f}% | {sync_warning}",
-                fontsize=9.0,
+                f"{env['regime']} | Step: {t}/{steps}\n"
+                f"Scope: {env['model_scope']} | ρ/ρ₀: {rho_ambient:.2e} | "
+                f"λ_D: {env['lambda_d_phys']} | {sync_warning}",
+                fontsize=8.6,
                 color="white",
                 pad=6,
             )
@@ -751,7 +748,7 @@ def run_simulation(
                 color="#ff6b6b",
                 alpha=0.85,
                 linewidth=1.1,
-                label="Hydro Thrust (Lag)",
+                label="Hydro Thrust (Wake-Lag Model)",
             )
             ax2.plot(
                 t_axis,
@@ -766,7 +763,7 @@ def run_simulation(
                 f_total_hist,
                 color="#feca57",
                 linewidth=1.6,
-                label="Direct Craft Thrust",
+                label="Direct Craft Thrust (w/ Wake Lag)",
             )
             ax2.plot(
                 t_axis,
@@ -774,27 +771,26 @@ def run_simulation(
                 color="#a29bfe",
                 linestyle="--",
                 linewidth=1.3,
-                label="CV Balance (Flux + Maxwell)",
+                label="CV Flux Balance (Raw LBM + Maxwell)",
             )
             ax2.axhline(0, color="gray", linewidth=0.8)
             ax2.set_xlim(0, steps)
 
-            y_max_val = max(
-                0.3,
-                np.max(np.abs(f_total_hist)) * 1.35 if len(f_total_hist) > 0 else 0.3,
-            )
+            all_vals = f_total_hist + f_cv_hist
+            max_abs = float(np.max(np.abs(all_vals))) if len(all_vals) > 0 else 0.0
+            y_max_val = max(1e-6, max_abs * 1.35)
             ax2.set_ylim(-y_max_val, y_max_val)
 
             mean_craft = np.mean(f_total_hist[40:]) if len(f_total_hist) > 40 else 0.0
             mean_cv = np.mean(f_cv_hist[40:]) if len(f_cv_hist) > 40 else 0.0
             ax2.set_title(
-                f"Mean Direct Thrust: {mean_craft:.4f} | Mean CV Flux Balance:"
-                f" {mean_cv:.4f} (LBM units)",
-                fontsize=8.5,
+                f"Mean Direct (Lag): {mean_craft:.3e} | Mean CV Balance (Raw):"
+                f" {mean_cv:.3e} (LBM units, ρ/ρ₀={rho_ambient:.1e})",
+                fontsize=8.2,
             )
             ax2.set_xlabel("Simulation Steps", fontsize=8.5)
             ax2.set_ylabel("Force Fx", fontsize=8.5)
-            ax2.legend(loc="upper right", fontsize=7.0, ncol=2)
+            ax2.legend(loc="upper right", fontsize=6.8, ncol=2)
             ax2.grid(alpha=0.2)
 
             plt.tight_layout()
@@ -815,6 +811,7 @@ def run_simulation(
     )
     return gif_file.name
 
+
 # ==========================================
 # 7. GRADIO WEB INTERFACE
 # ==========================================
@@ -824,10 +821,10 @@ with gr.Blocks(
     gr.Markdown(
         """
         # 🌌 Multi-Regime Wave Resonator (Self-Consistent Poisson + Control Volume + Wake Lag)
-        - **Новый алгоритм тяги**: Moving Bounce-Back (Ladd) с локальной плотностью + **Pressure Recovery Lag** (запаздывающие скорости стенки).
-        - Позволяет получать ненулевую среднюю тягу от асимметричных колебаний за счёт эффекта догоняющей присоединённой массы и вихревой пропульсии.
-        - Self-Consistent Field: 2D Poisson equation ($\nabla^2 \phi = -q_{ion}$) solved via Red-Black SOR.
-        - Momentum Conservation: Control Volume integrating hydrodynamic momentum flux + Maxwell stress tensor.
+        - **Алгоритм тяги**: Moving Bounce-Back (Ladd) с локальной плотностью + **Pressure Recovery Lag** (`wake_relaxation = 0.05`).
+        - **Телеметрия баланса**: `Direct Craft Thrust (w/ Wake Lag)` показывает феноменологическую тягу с учётом запаздывания следа, а `CV Flux Balance (Raw LBM + Maxwell)` — чистый поток импульса через контрольный контур; их расхождение отражает вклад модели памяти следа.
+        - **Масштабирование среды**: плотность поля $\rho$ и электромагнитная связь масштабируются по профилю `density_factor` ($
+ho / \rho_0$) от плотной атмосферы до ISM. Режимы ионосферы, солнечного ветра и ISM работают как феноменологический прокси (D2Q9 LBM описывает сплошную среду).
         """
     )
     with gr.Row():
@@ -837,7 +834,7 @@ with gr.Blocks(
                 100,
                 value=50,
                 step=2,
-                label="Mission Trajectory (0=Earth, 50=Ionosphere, 75=Interplanetary, 95=Interstellar)",
+                label="Mission Trajectory (0=Earth, 50=Ionosphere [Proxy], 75=Interplanetary [Proxy], 95=ISM [Proxy])",
             )
             speed_slider = gr.Slider(
                 0.0,
@@ -849,7 +846,7 @@ with gr.Blocks(
             voltage_slider = gr.Slider(
                 0.0,
                 2.5,
-                value=1.4,
+                value=1.2,
                 step=0.1,
                 label="Curvature Potential (EGD Discharge / Debye Cloud)",
             )
@@ -904,5 +901,3 @@ with gr.Blocks(
 
 if __name__ == "__main__":
     demo.launch()
-
-
