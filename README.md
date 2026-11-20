@@ -49,15 +49,13 @@ Within a broader theoretical interpretation the described mechanism is regarded 
 
 ## 📖 Bibliography
 
-### Scientific Papers & Patents
-
 * **Logos Online Journal (2021):** Kandyba P. (2021). [Flying Saucer Experimental Research, Aerodynamics Unexplored Phenomenon and Bird's Flight](https://doi.org/10.36074/2663-4139.17.01)
 
 * **Zenodo Publication (2026):** Kandyba, P. (2026). [Electromechanical Wave Propulsion of a Spacecraft](https://doi.org/10.5281/zenodo.24371995)
 
 
 ### Video Demonstrations & Experiments
-* **Official YouTube Channel:** [Prometheus Aerospace (Experiments & Prototypes)](https://youtube.com/@prometheusaerospace505?si=OhGW_niCoRLgxGfs)
+* **YouTube Channel:** [Prometheus Aerospace (Experiments & Prototypes)](https://youtube.com/@prometheusaerospace505?si=OhGW_niCoRLgxGfs)
 
 ---
 
