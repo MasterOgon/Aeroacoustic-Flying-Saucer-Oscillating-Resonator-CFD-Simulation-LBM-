@@ -10,7 +10,7 @@ This repository contains a Computational Fluid Dynamics (CFD) simulation applica
 
 ### Multi-Regime Wave Resonator Simulation (`app (ionic-bionic).py`)
 
-Alongside the baseline discoid resonator simulation, the repository includes an extended multi-regime simulation of a "bacterium"-shaped elastic wave resonator operating across five trajectory stages—from the dense lower atmosphere and mesosphere to phenomenological proxies of the ionosphere, solar wind, and interstellar medium (ISM). It couples a **D2Q9 LBM** solver (with density-aware Moving Bounce-Back and pressure-recovery wake lag) with a **self-consistent Red-Black SOR Poisson solver** for curvature-induced surface potential and dynamic ion screening, and verifies momentum balance via a **Control Volume (CV) + Maxwell stress tensor** diagnostic.
+Alongside the baseline discoid resonator simulation, the repository includes an extended multi-regime simulation of a "bacterium"-shaped resonator operating across from the dense lower atmosphere and mesosphere to phenomenological proxies of the ionosphere, solar wind, and interstellar medium (ISM). It couples a **D2Q9 LBM** solver (with density-aware Moving Bounce-Back and pressure-recovery wake lag) with a **self-consistent Red-Black SOR Poisson solver** for curvature-induced surface potential and dynamic ion screening, and verifies momentum balance via a **Control Volume (CV) + Maxwell stress tensor** diagnostic.
 
 ## Scientific Foundation & Engine Physics
 
@@ -49,9 +49,11 @@ Within a broader theoretical interpretation the described mechanism is regarded 
 
 ## 📖 Bibliography
 
+* **Zenodo Publication (2026):** Kandyba, P. (2026). [Electromechanical Wave Propulsion of a Spacecraft](https://doi.org/10.5281/zenodo.24371995)
+
 * **Logos Online Journal (2021):** Kandyba P. (2021). [Flying Saucer Experimental Research, Aerodynamics Unexplored Phenomenon and Bird's Flight](https://doi.org/10.36074/2663-4139.17.01)
 
-* **Zenodo Publication (2026):** Kandyba, P. (2026). [Electromechanical Wave Propulsion of a Spacecraft](https://doi.org/10.5281/zenodo.24371995)
+
 
 
 ### Video Demonstrations & Experiments
