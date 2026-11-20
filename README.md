@@ -8,6 +8,10 @@
 
 This repository contains a Computational Fluid Dynamics (CFD) simulation application built with Python, NumPy, and Gradio. The application simulates the unsteady fluid dynamics and vortex generation produced by an asymmetric oscillating body (biomimetic resonator / "flying saucer" model), utilizing the **Lattice Boltzmann Method (D2Q9 model)**.
 
+### Multi-Regime Wave Resonator Simulation (`app (ionic-bionic).py`)
+
+Alongside the baseline discoid resonator simulation, the repository includes an extended multi-regime simulation of a "bacterium"-shaped elastic wave resonator operating across five trajectory stages—from the dense lower atmosphere and mesosphere to phenomenological proxies of the ionosphere, solar wind, and interstellar medium (ISM). It couples a **D2Q9 LBM** solver (with density-aware Moving Bounce-Back and pressure-recovery wake lag) with a **self-consistent Red-Black SOR Poisson solver** for curvature-induced surface potential and dynamic ion screening, and verifies momentum balance via a **Control Volume (CV) + Maxwell stress tensor** diagnostic.
+
 ## Scientific Foundation & Engine Physics
 
 The simulation is grounded in experimental and theoretical studies of asymmetric oscillations of bodies in a fluid.
@@ -43,27 +47,19 @@ Within a broader theoretical interpretation the described mechanism is regarded 
 
 ---
 
-## 📖 Bibliography & Research Materials
+## 📖 Bibliography
 
 ### Scientific Papers & Patents
-* **Zenodo Publication (2025):** [Multimodal Aeroacoustic Aircraft Based on an Oscillating Resonator: From Laboratory Models to Quantum-Hydrodynamic Propulsion](https://doi.org/10.5281/zenodo.18047657)
-* **Logos Online Journal (2021):** [Flying Saucer Experimental Research, Aerodynamics Unexplored Phenomenon and Bird's Flight](https://doi.org/10.36074/2663-4139.17.01)
-* **Patent Reference:** Lozovsky L. (1998). *Method of vehicle movement and a universal "vibroplane" device for its implementation.* Patent RU 2147786 C1.
+
+* **Logos Online Journal (2021):** Kandyba P. (2021). [Flying Saucer Experimental Research, Aerodynamics Unexplored Phenomenon and Bird's Flight](https://doi.org/10.36074/2663-4139.17.01)
+
+* **Zenodo Publication (2026):** Kandyba, P. (2026). [Electromechanical Wave Propulsion of a Spacecraft](https://doi.org/10.5281/zenodo.24371995)
+
 
 ### Video Demonstrations & Experiments
 * **Official YouTube Channel:** [Prometheus Aerospace (Experiments & Prototypes)](https://youtube.com/@prometheusaerospace505?si=OhGW_niCoRLgxGfs)
 
 ---
-
-## 🛠️ App Features & Controls
-
-The simulated Python application allows you to tweak the physical parameters of the fluid and the vehicle in real-time via a **Gradio Web UI**:
-
-* **Fluid Properties:** Adjust grid relaxation time ($\tau$), modifying fluid viscosity and Reynolds number dynamics.
-* **Object Mass:** Scale the inertia of the body to observe how it handles buoyancy vs. acceleration forces.
-* **Dynamic Waveform Editor:** *Frequency (Hz)* & *Oscillation Amplitude* control the kinematics of the resonator.
-  * *Velocity Profile Asymmetry* changes the stroke acceleration bias to optimize thrust generation.
-* **Visualization Modes:** Toggle between Pressure, Pressure Deviation and Vorticity fields using a professional high-contrast multi-color CFD palette.
 
 ## Try it Online
 
