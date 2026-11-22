@@ -773,21 +773,22 @@ def _cfd_wall_velocity_field(solid, hull_prev, hull_curr, center_prev, center_cu
     wall_uy[iy, ix] = lattice_velocity[:, 1]
     return wall_ux, wall_uy
 
-
-def _cfd_step(f, solid, tau, wall_ux, wall_uy):
-    """Bionic-UFO-style D2Q9 BGK update with a moving contour boundary.
-
-    The fluid starts at exact equilibrium (rho=1, u=0). Disturbances are
-    introduced only when the moving/deforming bacterium writes its local wall
-    velocity into the solid mask, as in the reference Bionic UFO renderer.
-    """
+def _cfd_step(f, solid, tau, wall_ux, wall_uy, p_damping=0.08):
     rho = np.maximum(np.sum(f, axis=0), 1e-8)
     ux = np.sum(f * CFD_C[:, 0, None, None], axis=0) / rho
     uy = np.sum(f * CFD_C[:, 1, None, None], axis=0) / rho
 
+    # Быстрое затухание волн давления (отклонений плотности от 1.0) в жидкости
+    if p_damping > 0.0:
+        rho_damped = np.where(solid, rho, 1.0 + (rho - 1.0) * (1.0 - float(p_damping)))
+        scale = np.clip(rho_damped / rho, 0.0, 2.0)
+        f = f * scale[None, :, :]
+        rho = rho_damped
+
     # BGK collision in the fluid.
     feq = _cfd_equilibrium(rho, ux, uy)
     post = f - (f - feq) / max(float(tau), 0.5001)
+
 
     # Moving solid: prescribe the actual local contour velocity, just as the
     # Bionic UFO model prescribes the resonator velocity inside its mask.
@@ -1194,11 +1195,15 @@ def run_experiment(
     if cfd_enabled:
         cfd_solid0 = _cfd_solid_mask(hull_history[0], initial_hull_center)
         field0, cfd_vmin0, cfd_vmax0 = _cfd_render_field(cfd_f, cfd_solid0, cfd_vis_mode)
+
         cfd_image = ax.imshow(
-            field0, extent=(0, BOX_X, 0, BOX_Y), origin="lower", aspect="auto",
+            field0, extent=(0, BOX_X, 0, BOX_Y), origin="lower", aspect="equal",
             cmap=CFD_CMAP, vmin=cfd_vmin0, vmax=cfd_vmax0, interpolation="bilinear",
             alpha=0.88, zorder=0
         )
+
+        
+        
 
     scat_internal = ax.scatter(
         internal_particles_history[0][:, 0] if len(internal_particles_history[0]) else [],
@@ -1270,7 +1275,11 @@ def run_experiment(
                         solid_step, prev_hull, curr_hull,
                         prev_center, curr_center, DT
                     )
-                    cfd_f = _cfd_step(cfd_f, solid_step, cfd_tau, wall_ux, wall_uy)
+                    cfd_f = _cfd_step(cfd_f, solid_step, cfd_tau, wall_ux, wall_uy, p_damping=0.10)
+
+
+
+                    
             solid_i = _cfd_solid_mask(hull_history[i], center_i)
             field_i, vmin_i, vmax_i = _cfd_render_field(cfd_f, solid_i, cfd_vis_mode)
             cfd_image.set_data(field_i)
