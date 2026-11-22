@@ -8,6 +8,10 @@
 
 This repository contains a Computational Fluid Dynamics (CFD) simulation application built with Python, NumPy, and Gradio. The application simulates the unsteady fluid dynamics and vortex generation produced by an asymmetric oscillating body (biomimetic resonator / "flying saucer" model), utilizing the **Lattice Boltzmann Method (D2Q9 model)**.
 
+### N-body Coulomb Fluid and Wave Propulsion of a Jellyfish and Bacterium.  (`app (microbio).py`)
+
+The model is based on the simulation of Coulomb interactions between free ions, electrons, and charges located on the surface of the organism’s body. To prevent particles of opposite signs from "sticking" together and particles of the same sign from overlapping, the classical attractive force is supplemented by a quantum-mechanical repulsive force that acts at extremely short distances. A bending wave redistributes the surface charges, causing the body to push off against the charged medium and thereby set itself in motion.
+
 ### Multi-Regime Wave Resonator Simulation (`app (ionic-bionic).py`)
 
 Alongside the baseline discoid resonator simulation, the repository includes an extended multi-regime simulation of a "bacterium"-shaped resonator operating across from the dense lower atmosphere and mesosphere to phenomenological proxies of the ionosphere, solar wind, and interstellar medium (ISM). It couples a **D2Q9 LBM** solver (with density-aware Moving Bounce-Back and pressure-recovery wake lag) with a **self-consistent Red-Black SOR Poisson solver** for curvature-induced surface potential and dynamic ion screening, and verifies momentum balance via a **Control Volume (CV) + Maxwell stress tensor** diagnostic.
