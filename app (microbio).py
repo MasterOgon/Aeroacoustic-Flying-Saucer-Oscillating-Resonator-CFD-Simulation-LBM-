@@ -65,6 +65,10 @@ Q_KIN_SCALE = 0.00003       # Было 0.000215 — снижаем, чтобы �
 
 DAMPING = 0.015  # Default calibrated to the water-like CFD visualization setting
 
+MEDIUM_TEMP_DEFAULT = 0.20
+MEDIUM_TEMP_MAX = 2.00
+MEDIUM_THERMAL_COUPLING = 0.05
+
 # Effective Fermi-Dirac Statistical Repulsion Potential for Identical Fermions
 # V_FD(r) = FD_KT * ln(1 + exp(-(r - R_F) / LAMBDA_F))
 # Force: F_FD(r) = (FD_KT / LAMBDA_F) / (1 + exp((r - R_F) / LAMBDA_F)) * r_hat
@@ -146,6 +150,37 @@ def effective_ei_equilibrium_radius() -> float:
 R_EQ_CALIBRATED = effective_ei_equilibrium_radius()
 
 
+def _medium_target_v_rms(medium_temp: float, mass: np.ndarray) -> np.ndarray:
+    """Target per-particle velocity scale (k_B = 1) matching initialization for medium_temp."""
+    t_eff = max(0.0, float(medium_temp))
+    return np.sqrt(t_eff / np.maximum(mass, 1e-12))[:, None]
+
+
+def _apply_medium_heat_source(
+    vel: np.ndarray,
+    mass: np.ndarray,
+    medium_temp: float,
+    rng: np.random.Generator,
+    dt: float,
+) -> None:
+    """
+    External medium heat source that maintains the temperature set at initialization
+    without net linear momentum drift.
+    """
+    if len(vel) == 0:
+        return
+    t_target = max(0.0, float(medium_temp))
+    if t_target <= 0.0:
+        return
+    v_target = _medium_target_v_rms(t_target, mass)
+    rate = 1.0 - np.exp(-MEDIUM_THERMAL_COUPLING * dt)
+    p_before = np.sum(mass[:, None] * vel, axis=0)
+    thermal_kick = rng.normal(0.0, 1.0, size=vel.shape) * v_target
+    vel = (1.0 - rate) * vel + rate * thermal_kick
+    p_after = np.sum(mass[:, None] * vel, axis=0)
+    vel -= ((p_after - p_before) / np.sum(mass))[None, :]
+
+
 def pairwise_medium_forces(pos: np.ndarray, charge: np.ndarray, species: np.ndarray):
     """
     Computes conservative all-to-all forces within the periodic medium:
@@ -193,6 +228,31 @@ def pairwise_medium_forces(pos: np.ndarray, charge: np.ndarray, species: np.ndar
     return np.sum(f_coul + f_qkin + f_fd, axis=1)
 
 
+def _compute_hull_ion_charge_weights(
+    n_nodes: int,
+    surface_charge_weight: float,
+    running_charge_weights=None,
+):
+    """Computes effective positive charge weights for the n_nodes hull ion nodes."""
+    if n_nodes <= 0:
+        return np.zeros(0, dtype=float), np.zeros(0, dtype=float)
+    if running_charge_weights is not None:
+        redist = np.asarray(running_charge_weights, dtype=float)
+        redist = redist - np.mean(redist)
+        max_abs = float(np.max(np.abs(redist)))
+        if max_abs > 1e-9:
+            redist = redist / max_abs
+        ion_w = np.maximum(0.05, surface_charge_weight * (1.0 + 0.75 * redist))
+        elec_w = np.maximum(0.05, surface_charge_weight * (1.0 - 0.75 * redist))
+        ion_w = ion_w * (surface_charge_weight / max(float(np.mean(ion_w)), 1e-9))
+        elec_w = elec_w * (surface_charge_weight / max(float(np.mean(elec_w)), 1e-9))
+        return ion_w, elec_w
+    return (
+        np.full(n_nodes, surface_charge_weight, dtype=float),
+        np.full(n_nodes, surface_charge_weight, dtype=float),
+    )
+
+
 def hull_surface_forces(
     pos: np.ndarray,
     species: np.ndarray,
@@ -219,22 +279,10 @@ def hull_surface_forces(
         return np.zeros_like(pos), np.zeros(2), 0.0
 
     hull_pos_charges = np.vstack([hull_ions, hull_elecs])
-
-    if running_charge_weights is not None:
-        redist = np.asarray(running_charge_weights, dtype=float)
-        redist = redist - np.mean(redist)
-        max_abs = float(np.max(np.abs(redist)))
-        if max_abs > 1e-9:
-            redist = redist / max_abs
-        ion_w = np.maximum(0.05, surface_charge_weight * (1.0 + 0.75 * redist))
-        elec_w = np.maximum(0.05, surface_charge_weight * (1.0 - 0.75 * redist))
-        ion_w = ion_w * (surface_charge_weight / max(float(np.mean(ion_w)), 1e-9))
-        elec_w = elec_w * (surface_charge_weight / max(float(np.mean(elec_w)), 1e-9))
-        hull_q = np.concatenate([ion_w, -elec_w])
-    else:
-        ion_w = np.full(n_nodes, surface_charge_weight)
-        elec_w = np.full(n_nodes, surface_charge_weight)
-        hull_q = np.concatenate([ion_w, -elec_w])
+    ion_w, elec_w = _compute_hull_ion_charge_weights(
+        n_nodes, surface_charge_weight, running_charge_weights
+    )
+    hull_q = np.concatenate([ion_w, -elec_w])
 
     # Pairwise force components from each hull charge node j to each medium particle i
     # 1. Coulomb interaction (MIC)
@@ -701,9 +749,9 @@ def _point_in_polygon_mask(points: np.ndarray, poly: np.ndarray) -> np.ndarray:
     return inside
 
 
-# ----------------------------- visualization-only CFD (D2Q9) -----------------------------
-# This grid is strictly a renderer: it is never sampled by the particle integrator,
-# never contributes forces, and never changes bacterium state.
+# ----------------------------- visualization-only field renderers -----------------------------
+# Strictly renderers: never sampled by the particle integrator,
+# never contribute forces, and never change bacterium state.
 CFD_NX, CFD_NY = 180, 90
 CFD_C = np.array([[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1],
                   [1, 1], [-1, 1], [-1, -1], [1, -1]], dtype=int)
@@ -714,6 +762,98 @@ CFD_CMAP = LinearSegmentedColormap.from_list(
      (0.40, "#00ff66"), (0.60, "#dfff00"), (0.85, "#ff9a00"),
      (1.00, "#ff2200")], N=512)
 CFD_CMAP.set_bad(color="#10151d")
+
+# Космическая ионная палитра (глубокий космос -> индиго -> циан -> яркая плазма)
+ION_FLOW_CMAP = LinearSegmentedColormap.from_list(
+    "cosmic_ion_plasma",
+    [
+        "#000000",
+        "#040814",
+        "#091938",
+        "#0f3a6e",
+        "#1373a8",
+        "#22b8cf",
+        "#7ef9ff",
+    ],
+    N=256,
+)
+ION_FLOW_CMAP.set_bad(color="#000000")
+
+# Предвычисленная сетка ячеек для проекции реального потока частиц
+_GRID_X = (np.arange(CFD_NX) + 0.5) * (BOX_X / CFD_NX)
+_GRID_Y = (np.arange(CFD_NY) + 0.5) * (BOX_Y / CFD_NY)
+_GRID_XX, _GRID_YY = np.meshgrid(_GRID_X, _GRID_Y)
+_GRID_PTS = np.column_stack((_GRID_XX.ravel(), _GRID_YY.ravel()))
+
+
+def _compute_real_ion_flow_field(
+    pos: np.ndarray,
+    vel: np.ndarray,
+    hull_ions: np.ndarray,
+    hull_ions_vel: np.ndarray,
+    hull_ion_charges: np.ndarray,
+    solid: np.ndarray,
+    glow_gain: float = 1.0,
+):
+    """
+    Computes the genuine physical ion flux density field
+        J_ion(x) = sum_{i in medium} q_i v_i W(x - x_i)
+                 + sum_{k in shell}  q_{ion,k} v_{shell,k} W(x - x_{shell,k})
+    from BOTH free medium ions (pos[0::2], vel[0::2], q=+1) AND the bacterium's
+    surface ion nodes (hull_ions, hull_ions_vel, hull_ion_charges) under Periodic
+    Boundary Conditions (MIC). The bacterium interior (`solid`) is strictly masked
+    out so the flow is rendered only in the exterior medium around the membrane.
+    """
+    gain = max(float(glow_gain), 0.01)
+
+    med_ion_pos = pos[0::2]
+    med_ion_vel = vel[0::2]
+    med_ion_q = np.ones(len(med_ion_pos), dtype=float)
+
+    if len(hull_ions) > 0:
+        all_ion_pos = np.vstack([med_ion_pos, hull_ions])
+        all_ion_vel = np.vstack([med_ion_vel, hull_ions_vel])
+        all_ion_q = np.concatenate([med_ion_q, hull_ion_charges])
+    else:
+        all_ion_pos = med_ion_pos
+        all_ion_vel = med_ion_vel
+        all_ion_q = med_ion_q
+
+    if len(all_ion_pos) == 0:
+        return np.zeros((CFD_NY, CFD_NX), dtype=float), 0.0, 0.95
+
+    # Эффективный радиус облака иона в единицах домена (согласован с COULOMB_SOFTENING)
+    sigma = max(COULOMB_SOFTENING * 0.95, 0.14)
+    inv_2sig2 = 1.0 / (2.0 * sigma * sigma)
+    norm_kernel = 1.0 / (2.0 * np.pi * sigma * sigma)
+
+    # Periodic displacement from each grid cell to each ion (medium + shell): (N_grid, N_ions)
+    dx = _GRID_PTS[:, 0:1] - all_ion_pos[None, :, 0]
+    dy = _GRID_PTS[:, 1:2] - all_ion_pos[None, :, 1]
+    dx -= BOX_X * np.round(dx / BOX_X)
+    dy -= BOX_Y * np.round(dy / BOX_Y)
+    r2 = dx * dx + dy * dy
+
+    weights = norm_kernel * np.exp(-r2 * inv_2sig2)
+    q_weights = weights * all_ion_q[None, :]
+
+    # Вектор плотности ионного потока J_ion(x) = sum_i q_i v_i W_i(x)
+    jx = q_weights @ all_ion_vel[:, 0]
+    jy = q_weights @ all_ion_vel[:, 1]
+    flux_mag = np.hypot(jx, jy)
+
+    # Локальный скалярный ореол движущихся ионов (чтобы встречные/колебательные потоки у мембраны не гасились в ноль)
+    ion_speed = np.hypot(all_ion_vel[:, 0], all_ion_vel[:, 1])
+    local_agitation = q_weights @ ion_speed
+    raw_intensity = (0.80 * flux_mag + 0.20 * local_agitation) * gain
+
+    # Калибровочный масштаб для характерной плотности и скорости ионов среды и оболочки
+    scale_ref = 0.35
+    field = np.tanh((raw_intensity / scale_ref) * 1.15).reshape(CFD_NY, CFD_NX)
+
+    # Внутри бактерии ионный поток не показываем
+    field[solid] = 0.0
+    return np.clip(np.nan_to_num(field, nan=0.0), 0.0, 1.0), 0.0, 0.95
 
 
 def _cfd_equilibrium(rho, ux, uy):
@@ -773,6 +913,7 @@ def _cfd_wall_velocity_field(solid, hull_prev, hull_curr, center_prev, center_cu
     wall_uy[iy, ix] = lattice_velocity[:, 1]
     return wall_ux, wall_uy
 
+
 def _cfd_step(f, solid, tau, wall_ux, wall_uy, p_damping=0.08):
     rho = np.maximum(np.sum(f, axis=0), 1e-8)
     ux = np.sum(f * CFD_C[:, 0, None, None], axis=0) / rho
@@ -788,7 +929,6 @@ def _cfd_step(f, solid, tau, wall_ux, wall_uy, p_damping=0.08):
     # BGK collision in the fluid.
     feq = _cfd_equilibrium(rho, ux, uy)
     post = f - (f - feq) / max(float(tau), 0.5001)
-
 
     # Moving solid: prescribe the actual local contour velocity, just as the
     # Bionic UFO model prescribes the resonator velocity inside its mask.
@@ -822,22 +962,23 @@ def _cfd_solid_mask(hull, center):
     return mask
 
 
-def _cfd_render_field(f, solid, vis_mode):
+def _cfd_render_field(f, solid, vis_mode, glow_gain=1.0):
+    gain = max(float(glow_gain), 0.01)
     rho = np.sum(f, axis=0)
     ux = np.sum(f * CFD_C[:, 0, None, None], axis=0) / np.maximum(rho, 1e-8)
     uy = np.sum(f * CFD_C[:, 1, None, None], axis=0) / np.maximum(rho, 1e-8)
     if vis_mode == "Pressure":
-        data = rho - 1.0
+        data = (rho - 1.0) * gain
         lim = float(np.percentile(np.abs(data[~solid]), 99.5)) if np.any(~solid) else 1e-5
         vmin, vmax = -max(lim, 1e-7), max(lim, 1e-7)
     elif vis_mode == "Pressure Deviation":
-        data = np.abs(rho - 1.0)
+        data = np.abs(rho - 1.0) * gain
         vmax = max(float(np.percentile(data[~solid], 99.7)) if np.any(~solid) else 1e-5, 1e-7)
         vmin = 0.0
     else:  # Vortices
         vort = (np.roll(uy, -1, axis=1) - np.roll(uy, 1, axis=1) -
                 np.roll(ux, -1, axis=0) + np.roll(ux, 1, axis=0)) * 0.5
-        data = np.abs(vort)
+        data = np.abs(vort) * gain
         vmax = max(float(np.percentile(data[~solid], 99.7)) if np.any(~solid) else 1e-5, 1e-7)
         vmin = 0.0
     data = np.asarray(data, dtype=float)
@@ -845,52 +986,39 @@ def _cfd_render_field(f, solid, vis_mode):
     return np.nan_to_num(data, nan=0.0), vmin, vmax
 
 
-def initialize(n_pairs, density, seed, n_hull_nodes):
+def initialize(n_pairs, density, seed, n_hull_nodes, medium_temp=MEDIUM_TEMP_DEFAULT):
     rng = np.random.default_rng(int(seed))
     n = int(n_pairs)
-    scale = 1.0 / np.sqrt(max(float(density), 0.05))
-    span_x = min(BOX_X, BOX_X * scale)
-    span_y = min(BOX_Y, BOX_Y * scale)
-    x0, x1 = (BOX_X - span_x) / 2.0, (BOX_X + span_x) / 2.0
-    y0, y1 = (BOX_Y - span_y) / 2.0, (BOX_Y + span_y) / 2.0
+    total = 2 * n
 
-    cx = rng.uniform(x0, x1, n)
-    cy = rng.uniform(y0, y1, n)
-    centers = np.column_stack((cx, cy))
+    # Равномерная сетка по всему домену [0, BOX_X) x [0, BOX_Y) с лёгким джиттером
+    nx = max(1, int(np.ceil(np.sqrt(total * (BOX_X / BOX_Y)))))
+    ny = max(1, int(np.ceil(total / nx)))
+    dx, dy = BOX_X / nx, BOX_Y / ny
 
-    hull_center = np.array([HULL_INIT_X, HULL_INIT_Y], dtype=float)
-    hull_init, _, _, _, _, _ = make_hull_nodes(
-        "Fish — traveling wave", 0.0, 0.0, n_hull_nodes, False, center_xy=hull_center, hull_angle=0.0
-    )
-    rel = minimum_image(centers - hull_center)
-    inside_poly = _point_in_polygon_mask(hull_center + rel, hull_init)
-    scaled_r2 = (rel[:, 0] / (HULL_HALF_LEN + 0.15)) ** 2 + (rel[:, 1] / (HULL_R_MAX + 0.15)) ** 2
-    inside = inside_poly | (scaled_r2 < 1.15)
-    if np.any(inside):
-        r_norm = np.linalg.norm(rel[inside], axis=1) + 1e-6
-        dirs = rel[inside] / r_norm[:, None]
-        target_r = np.maximum(r_norm, max(HULL_R_MAX + 0.25, 0.35)) * 1.25
-        centers[inside] = (hull_center + dirs * target_r[:, None]) % np.array([BOX_X, BOX_Y])
+    gx, gy = np.meshgrid(np.arange(nx), np.arange(ny))
+    # Чередуем заряды (+1 / -1) в шахматном порядке на сетке
+    parity = (gx.ravel() + gy.ravel()) % 2
+    grid_pts = np.column_stack((
+        (gx.ravel() + 0.5 + rng.uniform(-0.2, 0.2, nx * ny)) * dx,
+        (gy.ravel() + 0.5 + rng.uniform(-0.2, 0.2, nx * ny)) * dy,
+    )) % np.array([BOX_X, BOX_Y])
 
-    # Initialize near calibrated quantum equilibrium radius R_EQ_CALIBRATED
-    angles = rng.uniform(0.0, 2.0 * np.pi, n)
-    radii = rng.normal(R_EQ_CALIBRATED, R_EQ_CALIBRATED * 0.08, n)
-    radii = np.clip(radii, 0.5 * R_EQ_CALIBRATED, 1.5 * R_EQ_CALIBRATED)
-    offsets = np.column_stack((radii * np.cos(angles), radii * np.sin(angles)))
+    # Берём по n узлов каждого знака (ионы = 0, электроны = 1)
+    idx_ions = np.where(parity == 0)[0]
+    idx_elecs = np.where(parity == 1)[0]
+    chosen_ions = grid_pts[rng.choice(idx_ions, size=n, replace=len(idx_ions) < n)]
+    chosen_elecs = grid_pts[rng.choice(idx_elecs, size=n, replace=len(idx_elecs) < n)]
 
-    # Place charges around center of mass so pair binding is initially relaxed
-    m_tot = PARTICLE_MASS + ELECTRON_MASS
-    pos_plus = (centers + (ELECTRON_MASS / m_tot) * offsets) % np.array([BOX_X, BOX_Y])
-    pos_minus = (centers - (PARTICLE_MASS / m_tot) * offsets) % np.array([BOX_X, BOX_Y])
-    pos = np.empty((2 * n, 2))
-    pos[0::2] = pos_plus
-    pos[1::2] = pos_minus
+    pos = np.empty((total, 2), dtype=float)
+    pos[0::2] = chosen_ions
+    pos[1::2] = chosen_elecs
 
-    # Zero-net-momentum thermal velocity initialization
-    v_scale = 0.04 / np.sqrt(max(density, 0.05))
-    vel = rng.normal(0.0, v_scale, pos.shape)
-    vel[1::2] *= np.sqrt(PARTICLE_MASS / ELECTRON_MASS) * 0.35
+    # Начальные тепловые скорости из medium_temp с нулевым суммарным импульсом
     mass = np.tile([PARTICLE_MASS, ELECTRON_MASS], n)
+    t_init = max(0.0, float(medium_temp))
+    v_std = np.sqrt(t_init / np.maximum(mass, 1e-12))[:, None]
+    vel = rng.normal(0.0, 1.0, pos.shape) * v_std
     p_cm = np.sum(mass[:, None] * vel, axis=0) / np.sum(mass)
     vel -= p_cm[None, :]
 
@@ -905,17 +1033,25 @@ def run_experiment(
     surface_density,
     body_mass_scale,
     damping_val,
+    medium_temp,
     frequency,
     amplitude,
     frames,
     n_pairs,
     seed,
     running_charges=True,
-    cfd_enabled=False,
-    cfd_vis_mode="Vortices",
+    cfd_enabled=True,
+    cfd_vis_mode="Ion Flow",
+    cfd_glow_gain=1.0,
 ):
     n_hull_nodes = max(0, int(round(HULL_NODES_BASE * float(surface_density))))
     damping_coeff = float(np.clip(damping_val, 0.0, 1.0))
+    medium_temp_val = float(np.clip(medium_temp, 0.0, MEDIUM_TEMP_MAX))
+    glow_gain_val = max(0.01, float(cfd_glow_gain))
+    heat_rng = np.random.default_rng(int(seed) + 100003)
+
+    is_ion_flow_mode = bool(cfd_enabled) and (cfd_vis_mode == "Ion Flow")
+    use_lbm_cfd = bool(cfd_enabled) and (cfd_vis_mode != "Ion Flow")
 
     # Neutral massive internal particles uniformly distributed inside bacterium
     n_internal_particles = max(0, int(round(INTERNAL_PARTICLES_BASE * float(body_mass_scale))))
@@ -925,7 +1061,7 @@ def run_experiment(
     internal_mass = float(n_internal_particles) * PARTICLE_MASS
     hull_mass = shell_mass + internal_mass
 
-    pos, vel, charge, mass, species = initialize(n_pairs, density, seed, n_hull_nodes)
+    pos, vel, charge, mass, species = initialize(n_pairs, density, seed, n_hull_nodes, medium_temp=medium_temp_val)
     n = len(pos)
     ion_idx = np.arange(0, n, 2)
     elec_idx = ion_idx + 1
@@ -947,20 +1083,24 @@ def run_experiment(
     hull_force_history = []
     kinetic_history = []
     pos_history = []
+    vel_history = []
     hull_history = []
     hull_ions_history = []
+    hull_ions_vel_history = []
+    hull_ion_charges_history = []
     hull_elecs_history = []
     internal_particles_history = []
     running_q_history = []
     hull_pos_history = []
     hull_center_history = []
-    # CFD needs every physical substep: frame-only contours would alias the
-    # 3 Hz travelling wave and produce an incorrect apparent wall velocity.
-    cfd_hull_history = [] if cfd_enabled else None
-    cfd_center_history = [] if cfd_enabled else None
+    # LBM CFD needs every physical substep: frame-only contours would alias the
+    # travelling wave and produce an incorrect apparent wall velocity.
+    cfd_hull_history = [] if use_lbm_cfd else None
+    cfd_center_history = [] if use_lbm_cfd else None
 
     steps = int(frames) * SUBSTEPS_PER_FRAME
     for step in range(steps):
+        prev_hull_ions_step = hull_ions.copy() if step > 0 else None
         phase += 2 * np.pi * float(frequency) * DT
         hull_pos, hull_ions, hull_elecs, _, run_w, len_scale = make_hull_nodes(
             mode,
@@ -1003,6 +1143,7 @@ def run_experiment(
         # Velocity-Verlet first half-step
         acc = (force - damping_coeff * vel) / mass[:, None]
         vel += 0.5 * acc * DT
+        _apply_medium_heat_source(vel, mass, medium_temp_val, heat_rng, 0.5 * DT)
         pos = (pos + vel * DT) % np.array([BOX_X, BOX_Y])
 
         if hull_mass > 1e-12:
@@ -1110,9 +1251,11 @@ def run_experiment(
             hull_ions = hull_ions2
             hull_elecs = hull_elecs2
             hull_pos = hull_pos2
+            run_w = run_w2
             len_scale = len_scale2
 
         vel += 0.5 * ((force2 - damping_coeff * vel) / mass[:, None]) * DT
+        _apply_medium_heat_source(vel, mass, medium_temp_val, heat_rng, 0.5 * DT)
         if hull_mass > 1e-12:
             hull_vel += 0.5 * (hull_force2 / hull_mass) * DT
 
@@ -1125,6 +1268,27 @@ def run_experiment(
         hull_omega += 0.5 * (hull_torque2 / hull_inertia2) * DT
 
         if step % SUBSTEPS_PER_FRAME == 0:
+            # Реальная физическая скорость ионных узлов оболочки за шаг DT
+            if n_hull_nodes > 0:
+                if prev_hull_ions_step is not None and len(prev_hull_ions_step) == len(hull_ions):
+                    hull_ions_v = minimum_image(hull_ions - prev_hull_ions_step) / max(DT, 1e-12)
+                else:
+                    # На нулевом шаге оцениваем начальную кинематическую скорость узлов за DT
+                    _, hull_ions_next, _, _, _, _ = make_hull_nodes(
+                        mode,
+                        phase + 2 * np.pi * float(frequency) * DT,
+                        float(amplitude),
+                        n_hull_nodes,
+                        running_charges=use_running,
+                        center_xy=hull_center + hull_vel * DT,
+                        hull_angle=hull_angle + hull_omega * DT,
+                    )
+                    hull_ions_v = minimum_image(hull_ions_next - hull_ions) / max(DT, 1e-12)
+                hull_ion_q, _ = _compute_hull_ion_charge_weights(n_hull_nodes, surf_weight, run_w)
+            else:
+                hull_ions_v = np.zeros((0, 2), dtype=float)
+                hull_ion_q = np.zeros(0, dtype=float)
+
             p_med = np.sum(mass[:, None] * vel, axis=0)
             p_hull = hull_mass * hull_vel if hull_mass > 0 else np.zeros(2)
             medium_momentum_history.append(p_med)
@@ -1139,15 +1303,18 @@ def run_experiment(
             kin_hull_rot = 0.5 * hull_inertia2 * (hull_omega ** 2)
             kinetic_history.append(kin_medium + kin_hull_trans + kin_hull_rot)
             pos_history.append(pos.copy())
+            vel_history.append(vel.copy())
             hull_history.append(hull_pos % np.array([BOX_X, BOX_Y]))
             hull_ions_history.append(hull_ions % np.array([BOX_X, BOX_Y]))
+            hull_ions_vel_history.append(hull_ions_v.copy())
+            hull_ion_charges_history.append(hull_ion_q.copy())
             hull_elecs_history.append(hull_elecs % np.array([BOX_X, BOX_Y]))
             internal_particles_history.append(internal_world2 % np.array([BOX_X, BOX_Y]))
             running_q_history.append(None if run_w is None else run_w.copy())
             hull_pos_history.append(hull_center.copy())
             hull_center_history.append(hull_center.copy())
 
-        if cfd_enabled:
+        if use_lbm_cfd:
             cfd_hull_history.append(hull_pos % np.array([BOX_X, BOX_Y]))
             cfd_center_history.append(hull_center.copy())
 
@@ -1159,9 +1326,14 @@ def run_experiment(
     n_rendered = len(pos_history)
     frame_idx = np.arange(n_rendered)
 
+    bg_color_main = "#000000" if is_ion_flow_mode else "#10151d"
+    active_cmap = ION_FLOW_CMAP if is_ion_flow_mode else CFD_CMAP
+    active_interp = "bicubic" if is_ion_flow_mode else "bilinear"
+    active_alpha = 1.0 if is_ion_flow_mode else 0.88
+
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.2), dpi=100)
     ax = axes[0]
-    ax.set_facecolor("#10151d")
+    ax.set_facecolor(bg_color_main)
     ax.set_xlim(0, BOX_X)
     ax.set_ylim(0, BOX_Y)
     ax.set_aspect("equal")
@@ -1188,22 +1360,31 @@ def run_experiment(
     )
     ax.add_patch(hull_patch)
 
-    cfd_f = _cfd_init() if cfd_enabled else None
+    cfd_f = _cfd_init() if use_lbm_cfd else None
     cfd_image = None
     cfd_tau = 0.58 + 0.08 * (damping_coeff / max(DAMPING, 1e-9) - 1.0)
     cfd_tau = float(np.clip(cfd_tau, 0.51, 0.95))
     if cfd_enabled:
         cfd_solid0 = _cfd_solid_mask(hull_history[0], initial_hull_center)
-        field0, cfd_vmin0, cfd_vmax0 = _cfd_render_field(cfd_f, cfd_solid0, cfd_vis_mode)
-
+        if is_ion_flow_mode:
+            field0, cfd_vmin0, cfd_vmax0 = _compute_real_ion_flow_field(
+                pos_history[0],
+                vel_history[0],
+                hull_ions_history[0],
+                hull_ions_vel_history[0],
+                hull_ion_charges_history[0],
+                cfd_solid0,
+                glow_gain=glow_gain_val,
+            )
+        else:
+            field0, cfd_vmin0, cfd_vmax0 = _cfd_render_field(
+                cfd_f, cfd_solid0, cfd_vis_mode, glow_gain=glow_gain_val
+            )
         cfd_image = ax.imshow(
             field0, extent=(0, BOX_X, 0, BOX_Y), origin="lower", aspect="equal",
-            cmap=CFD_CMAP, vmin=cfd_vmin0, vmax=cfd_vmax0, interpolation="bilinear",
-            alpha=0.88, zorder=0
+            cmap=active_cmap, vmin=cfd_vmin0, vmax=cfd_vmax0, interpolation=active_interp,
+            alpha=active_alpha, zorder=0
         )
-
-        
-        
 
     scat_internal = ax.scatter(
         internal_particles_history[0][:, 0] if len(internal_particles_history[0]) else [],
@@ -1253,6 +1434,7 @@ def run_experiment(
     def update(i):
         nonlocal cfd_f
         p = pos_history[i]
+        v = vel_history[i]
         scat_ions.set_offsets(p[0::2])
         scat_elec.set_offsets(p[1::2])
         center_i = hull_center_history[i]
@@ -1260,28 +1442,39 @@ def run_experiment(
         if len(hull_history[i]) >= 3:
             hull_patch.set_xy(hull_plot_i)
         if cfd_enabled:
-            # Keep frame 0 perfectly undisturbed. Thereafter advance the CFD
-            # once for each real bacterium physics substep between video frames.
-            if i > 0:
-                first_step = (i - 1) * SUBSTEPS_PER_FRAME + 1
-                last_step = min(i * SUBSTEPS_PER_FRAME, len(cfd_hull_history) - 1)
-                for cfd_step_idx in range(first_step, last_step + 1):
-                    prev_hull = cfd_hull_history[cfd_step_idx - 1]
-                    curr_hull = cfd_hull_history[cfd_step_idx]
-                    prev_center = cfd_center_history[cfd_step_idx - 1]
-                    curr_center = cfd_center_history[cfd_step_idx]
-                    solid_step = _cfd_solid_mask(curr_hull, curr_center)
-                    wall_ux, wall_uy = _cfd_wall_velocity_field(
-                        solid_step, prev_hull, curr_hull,
-                        prev_center, curr_center, DT
-                    )
-                    cfd_f = _cfd_step(cfd_f, solid_step, cfd_tau, wall_ux, wall_uy, p_damping=0.10)
-
-
-
-                    
             solid_i = _cfd_solid_mask(hull_history[i], center_i)
-            field_i, vmin_i, vmax_i = _cfd_render_field(cfd_f, solid_i, cfd_vis_mode)
+            if is_ion_flow_mode:
+                # Реальный поток свободных ионов среды И ионных узлов оболочки (внутренность бактерии замаскирована)
+                field_i, vmin_i, vmax_i = _compute_real_ion_flow_field(
+                    p,
+                    v,
+                    hull_ions_history[i],
+                    hull_ions_vel_history[i],
+                    hull_ion_charges_history[i],
+                    solid_i,
+                    glow_gain=glow_gain_val,
+                )
+            else:
+                # Keep frame 0 perfectly undisturbed. Thereafter advance the CFD
+                # once for each real bacterium physics substep between video frames.
+                if i > 0:
+                    first_step = (i - 1) * SUBSTEPS_PER_FRAME + 1
+                    last_step = min(i * SUBSTEPS_PER_FRAME, len(cfd_hull_history) - 1)
+                    for cfd_step_idx in range(first_step, last_step + 1):
+                        prev_hull = cfd_hull_history[cfd_step_idx - 1]
+                        curr_hull = cfd_hull_history[cfd_step_idx]
+                        prev_center = cfd_center_history[cfd_step_idx - 1]
+                        curr_center = cfd_center_history[cfd_step_idx]
+                        solid_step = _cfd_solid_mask(curr_hull, curr_center)
+                        wall_ux, wall_uy = _cfd_wall_velocity_field(
+                            solid_step, prev_hull, curr_hull,
+                            prev_center, curr_center, DT
+                        )
+                        cfd_f = _cfd_step(cfd_f, solid_step, cfd_tau, wall_ux, wall_uy, p_damping=0.10)
+
+                field_i, vmin_i, vmax_i = _cfd_render_field(
+                    cfd_f, solid_i, cfd_vis_mode, glow_gain=glow_gain_val
+                )
             cfd_image.set_data(field_i)
             cfd_image.set_clim(vmin_i, vmax_i)
         if len(internal_particles_history[i]):
@@ -1335,6 +1528,16 @@ def run_experiment(
     charge_mode_label = "Running (curvature + phase)" if use_running else "Uniform neutral dipole"
     avg_spacing = REF_PERIMETER / max(n_hull_nodes, 1) if n_hull_nodes > 0 else float("inf")
 
+    vis_info = (
+        f"Real ion flux field (medium ions + shell ion nodes, interior masked, glow {glow_gain_val:.2f}x)"
+        if is_ion_flow_mode
+        else (
+            f"CFD viscosity tau: {cfd_tau:.3f}, glow {glow_gain_val:.2f}x (visualization only)"
+            if cfd_enabled
+            else "Field visualization off"
+        )
+    )
+
     report = (
         f"Model: Periodic (PBC) Effective Quantum-Classical 2D Medium\n"
         f"Medium particles: {n} ({n_pairs} ions + {n_pairs} electrons); net charge: {net_charge:.3g} e\n"
@@ -1351,7 +1554,7 @@ def run_experiment(
         f"Total system momentum (med + hull): ({final_total_momentum[0]:.4g}, {final_total_momentum[1]:.4g})\n"
         f"Mean estimated hull reaction: ({mean_force[0]:.4g}, {mean_force[1]:.4g}) | "
         f"Medium density: {density:.3g} | Surface density: {surface_density:.3g} | "
-        f"Damping: {damping_coeff:.3g} | CFD viscosity tau: {cfd_tau:.3f} (visualization only)"
+        f"Medium temp: {medium_temp_val:.3g} | Damping: {damping_coeff:.3g} | {vis_info}"
     )
     return tmp_video.name, report
 
@@ -1392,12 +1595,17 @@ with gr.Blocks(title="Microbio Unified Medium — PBC Quantum-Classical", theme=
         frequency = gr.Slider(0.01, 1.0, value=0.11, step=0.01, label="Frequency")
         amplitude = gr.Slider(0.0, 3.0, value=0.5, step=0.05, label="Oscillation amplitude")
         damping_val = gr.Slider(0.0, 1.0, value=DAMPING, step=0.005, label="Damping / CFD viscosity (water default)")
+        medium_temp = gr.Slider(0.0, MEDIUM_TEMP_MAX, value=MEDIUM_TEMP_DEFAULT, step=0.02, label="Medium temperature (heat source)")
         frames = gr.Slider(20, 500, value=100, step=10, label="Number of frames")
     with gr.Row():
-        cfd_enabled = gr.Checkbox(value=False, label="Enable CFD visualization (visualization only)")
+        cfd_enabled = gr.Checkbox(value=True, label="Enable field visualization (visualization only)")
         cfd_vis_mode = gr.Radio(
-            choices=["Vortices", "Pressure", "Pressure Deviation"],
-            value="Vortices", label="CFD color mode"
+            choices=["Ion Flow", "Vortices", "Pressure", "Pressure Deviation"],
+            value="Ion Flow", label="Field visualization mode"
+        )
+        cfd_glow_gain = gr.Slider(
+            0.1, 10.0, value=1.0, step=0.1,
+            label="Ion / CFD visual glow gain (no physics impact)"
         )
     with gr.Row():
         n_pairs = gr.Slider(10, 300, value=20, step=10, label="Number of medium pairs")
@@ -1416,8 +1624,8 @@ with gr.Blocks(title="Microbio Unified Medium — PBC Quantum-Classical", theme=
         run_experiment,
         inputs=[
             mode, density, surface_density, body_mass_scale, damping_val,
-            frequency, amplitude, frames, n_pairs, seed, running_charges_state,
-            cfd_enabled, cfd_vis_mode,
+            medium_temp, frequency, amplitude, frames, n_pairs, seed,
+            running_charges_state, cfd_enabled, cfd_vis_mode, cfd_glow_gain,
         ],
         outputs=[video_out, report],
     )
